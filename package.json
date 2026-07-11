@@ -10,6 +10,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@spotify/basic-pitch": "^1.0.1",
+    "@tensorflow/tfjs": "^3.21.0",
     "d3": "^7.9.0",
     "next": "16.2.10",
     "pitchfinder": "^2.3.4",

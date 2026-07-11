@@ -57,6 +57,28 @@ export function justRatioFrequency(rootFreq: number, ratio: number): number {
   return rootFreq * ratio;
 }
 
+/**
+ * Standard 5-limit just-intonation approximation for each of the 12
+ * equal-tempered interval classes (index = semitones 0-11), in lowest
+ * terms [numerator, denominator]. Used by aestheticMetrics.ts to score
+ * consonance via Euler's Gradus Suavitatis, which is only defined for
+ * rational-number ratios.
+ */
+export const FIVE_LIMIT_RATIOS_BY_INTERVAL_CLASS: readonly [number, number][] = [
+  [1, 1], // unison
+  [16, 15], // minor second
+  [9, 8], // major second
+  [6, 5], // minor third
+  [5, 4], // major third
+  [4, 3], // perfect fourth
+  [45, 32], // tritone
+  [3, 2], // perfect fifth
+  [8, 5], // minor sixth
+  [5, 3], // major sixth
+  [16, 9], // minor seventh
+  [15, 8], // major seventh
+];
+
 /** Equal-temperament ratio for n semitones, e.g. n=7 -> equal-tempered fifth. */
 export function equalTemperamentRatio(semitones: number): number {
   return Math.pow(2, semitones / 12);
