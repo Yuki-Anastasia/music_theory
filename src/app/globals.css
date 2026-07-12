@@ -3,11 +3,20 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Interface/structure accent: navigation, active tabs, section markers,
+     decorative SVG strokes. Distinct from the bright data-blue used by the
+     charts (#2a78d6/#3987e5, defined per-component, intentionally not a
+     token here) so "data" and "interface" never share a color. */
+  --navy: #1c2b4a;
+  /* Pale wash for decorative SVG fills only — never used for text. */
+  --decoration: #eef3fa;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-navy: var(--navy);
+  --color-decoration: var(--decoration);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,6 +25,8 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --navy: #8ca9db;
+    --decoration: #12192b;
   }
 }
 

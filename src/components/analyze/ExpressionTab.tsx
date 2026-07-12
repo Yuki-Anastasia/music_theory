@@ -1,4 +1,5 @@
 import MetricCard from "@/components/analyze/MetricCard";
+import SectionHeader from "@/components/analyze/SectionHeader";
 import MoodQuadrantChart from "@/components/MoodQuadrantChart";
 import { describeMoodQuadrant } from "@/lib/theory/emotionEstimate";
 import type { TempoEstimate, RhythmicEntropyEstimate } from "@/lib/theory/rhythmAnalysis";
@@ -20,15 +21,24 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Presents four stages of the same narrative — rhythm, dynamics, mood
+ * estimate, then how those measurements evolve across the song — rather
+ * than as unrelated dashboard statistics.
+ */
 export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
   const { tempo, rhythmEntropy, dynamics, valence, arousal, arc } = data;
 
   return (
-    <div className="flex flex-col gap-6">
-      {tempo && rhythmEntropy && dynamics && (
+    <div className="flex flex-col gap-10">
+      {tempo && rhythmEntropy && (
         <div>
-          <h2 className="mb-2 text-lg font-semibold">リズム・強弱の推定</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <SectionHeader
+            label="EXPRESSION — RHYTHM"
+            heading="リズムの推定"
+            description="オンセット密度の自己相関からテンポを、音価分布のシャノンエントロピーからリズムの複雑さを推定します。"
+          />
+          <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
             <MetricCard
               title="テンポ"
               theory="オンセット密度の自己相関によるビート周期推定"
@@ -43,41 +53,52 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
               value={`${rhythmEntropy.entropyBits.toFixed(2)} bit (最大 ${rhythmEntropy.maxEntropyBits.toFixed(2)} bit)`}
               note="値が大きいほど音価のバリエーションが豊富"
             />
-            <MetricCard
-              title="強弱(ダイナミクス)"
-              theory="音符振幅(Basic Pitchのamplitude)の区間平均"
-              formula="range = max(区間平均) - min(区間平均)"
-              value={`平均 ${dynamics.averageLoudness.toFixed(2)} / レンジ ${dynamics.dynamicRange.toFixed(2)}`}
-              note={
-                dynamics.trend === "crescendo"
-                  ? "だんだん強くなる傾向"
-                  : dynamics.trend === "diminuendo"
-                    ? "だんだん弱くなる傾向"
-                    : "おおむね一定"
-              }
-            />
           </div>
+        </div>
+      )}
+
+      {dynamics && (
+        <div>
+          <SectionHeader
+            label="EXPRESSION — DYNAMICS"
+            heading="強弱の推定"
+            description="音符振幅(Basic Pitchのamplitude)の区間平均から、曲全体の強弱とその傾向を推定します。"
+          />
+          <MetricCard
+            title="強弱(ダイナミクス)"
+            theory="音符振幅の区間平均"
+            formula="range = max(区間平均) - min(区間平均)"
+            value={`平均 ${dynamics.averageLoudness.toFixed(2)} / レンジ ${dynamics.dynamicRange.toFixed(2)}`}
+            note={
+              dynamics.trend === "crescendo"
+                ? "だんだん強くなる傾向"
+                : dynamics.trend === "diminuendo"
+                  ? "だんだん弱くなる傾向"
+                  : "おおむね一定"
+            }
+          />
         </div>
       )}
 
       {valence !== null && arousal !== null && (
         <div>
-          <h2 className="mb-2 text-lg font-semibold">感情・印象の推定(Russellの感情円環モデル)</h2>
-          <p className="mb-3 text-xs text-zinc-500">
-            キー(長調/短調)・協和度・テンポ・強弱・リズムの複雑さから合成した仮説的な推定です。検証済みの感情認識モデルではありません。
-          </p>
+          <SectionHeader
+            label="EXPRESSION — MOOD"
+            heading="感情・印象の推定(Russellの感情円環モデル)"
+            description="キー(長調/短調)・協和度・テンポ・強弱・リズムの複雑さから合成した仮説的な推定です。検証済みの感情認識モデルではありません。"
+          />
           <MoodQuadrantChart valence={valence} arousal={arousal} />
         </div>
       )}
 
       {arc.length > 0 && (
         <div>
-          <h2 className="mb-2 text-lg font-semibold">曲の推移(メロディーの変化点で区切った区間ごと)</h2>
-          <p className="mb-3 text-xs text-zinc-500">
-            固定の等分割ではなく、メロディーのピッチクラス分布の変化(novelty検出)から区間の切れ目を検出しています。
-            明確な変化点が無い曲は1区間のままになります。各区間で協和度・強弱・感情推定を再計算し、曲がどう変化していくかを見るためのものです。
-          </p>
-          <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <SectionHeader
+            label="EXPRESSION — ARC"
+            heading="曲の推移"
+            description="固定の等分割ではなく、メロディーのピッチクラス分布の変化(novelty検出)から区間の切れ目を検出しています。明確な変化点が無い曲は1区間のままになります。各区間で協和度・強弱・感情推定を再計算し、上の4つの測定値が曲の中でどう動いていくかを見るためのものです。"
+          />
+          <div className="overflow-x-auto border-y border-zinc-100 dark:border-zinc-900">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-200 text-left text-zinc-500 dark:border-zinc-800">

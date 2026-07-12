@@ -85,7 +85,7 @@ export default function FourierTimelineChart({ timeline }: FourierTimelineChartP
   const hoveredBreakdown = hovered?.point.coefficients.filter((c) => c.k >= 1 && c.k <= 6 && c.k !== 5) ?? [];
 
   return (
-    <div className="rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
+    <div className="py-2">
       <div className="mb-1 flex justify-between text-xs text-zinc-500">
         <span>|X₅| ダイアトニック度の推移(1=五度圏上に強く集中、0=分散)</span>
         {hovered && (

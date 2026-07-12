@@ -22,7 +22,7 @@ export default function MoodQuadrantChart({ valence, arousal }: { valence: numbe
   const label = describeMoodQuadrant(valence, arousal);
 
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="py-2">
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mx-auto w-full max-w-[280px]">
         {/* map: quadrant frame + axes (muted) */}
         <rect

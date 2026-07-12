@@ -135,7 +135,7 @@ export default function PianoRollViewer({ events }: PianoRollViewerProps) {
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+    <div className="overflow-x-auto border-y border-zinc-100 dark:border-zinc-900">
       <canvas ref={canvasRef} className="block" />
     </div>
   );

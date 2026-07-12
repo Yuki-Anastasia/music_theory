@@ -74,7 +74,7 @@ export default function WaveformDisplay({ analyserRef, isActive }: WaveformDispl
   }, [isActive, analyserRef]);
 
   return (
-    <div className="rounded-lg border-2 border-zinc-300 p-2 dark:border-zinc-700">
+    <div className="border-y border-zinc-100 py-2 dark:border-zinc-900">
       <div className="mb-1 text-xs text-zinc-500">波形(オシロスコープ)</div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} className="w-full rounded" />
     </div>

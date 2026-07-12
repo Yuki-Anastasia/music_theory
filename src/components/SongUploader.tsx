@@ -67,7 +67,7 @@ export default function SongUploader({ onReady, disabled }: SongUploaderProps) {
   const isRecording = recordState === "recording";
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-full bg-foreground px-5 py-2 font-medium text-background">
           ファイルを選択
