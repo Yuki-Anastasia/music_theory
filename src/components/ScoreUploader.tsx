@@ -44,9 +44,9 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
   );
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer rounded-full border border-zinc-300 px-5 py-2 font-medium disabled:opacity-50 dark:border-zinc-700">
+        <label className="cursor-pointer rounded-full border border-zinc-300 px-4 py-1.5 text-xs font-medium disabled:opacity-50 dark:border-zinc-700">
           楽譜ファイルを選択(MusicXML)
           <input
             type="file"
@@ -56,9 +56,9 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
             disabled={disabled || parseState === "parsing"}
           />
         </label>
-        {parseState === "parsing" && <span className="text-sm text-zinc-500">解析中…</span>}
+        {parseState === "parsing" && <span className="text-xs text-zinc-500">解析中…</span>}
       </div>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs leading-relaxed text-zinc-500">
         Finale/Sibelius/Dorico/MuseScoreなどからエクスポートした.musicxml/.xml/.mxlファイルを読み込みます。
         音声を経由せず、記譜データそのものを解析するため、和音のピッチ推定に音声解析特有の誤りが生じません。
       </p>

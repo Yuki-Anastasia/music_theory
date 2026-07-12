@@ -84,7 +84,7 @@ export default function KeyTimelineChart({ timeline }: KeyTimelineChartProps) {
   const hovered = hoverIndex != null ? points[hoverIndex] : null;
 
   return (
-    <div className="rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
+    <div className="py-2">
       <div className="mb-1 flex justify-between text-xs text-zinc-500">
         <span>キーの推移(五度圏順、●=長調 / ○=短調、薄い点=確信度低)</span>
         {hovered && (

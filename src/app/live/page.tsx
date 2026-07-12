@@ -4,6 +4,7 @@ import { useMicPitch } from "@/lib/audio/useMicPitch";
 import MicInput from "@/components/MicInput";
 import SignalSpectrogram from "@/components/SignalSpectrogram";
 import WaveformDisplay from "@/components/WaveformDisplay";
+import WaveformFragment from "@/components/decoration/WaveformFragment";
 import { midiToNoteName } from "@/lib/audio/pitch";
 
 /**
@@ -15,65 +16,73 @@ import { midiToNoteName } from "@/lib/audio/pitch";
 export default function LivePage() {
   const { status, reading, latency, errorMessage, start, stop, analyserRef } = useMicPitch();
 
-  const totalLatencyMs =
-    latency != null ? latency.bufferLatencyMs + latency.avgProcessingMs : null;
+  const totalLatencyMs = latency != null ? latency.bufferLatencyMs + latency.avgProcessingMs : null;
+  const isActive = status === "listening" && !!reading;
 
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-6 p-8">
+    <main className="mx-auto flex max-w-xl flex-col gap-8 p-8">
       <div>
-        <h1 className="text-2xl font-semibold">ライブモード</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="text-xs font-medium tracking-[0.15em] text-navy">LIVE</p>
+        <h1 className="mt-1 text-2xl font-semibold">ライブモード</h1>
+        <p className="mt-2 text-sm text-zinc-500">
           マイクに向かって単音を歌う・楽器を弾く・口笛を吹くなどすると、検出された周波数とノートがリアルタイムに表示されます。
-          音声はブラウザ内で処理され、サーバーには送信されません。
         </p>
       </div>
 
       <MicInput status={status} errorMessage={errorMessage} onStart={start} onStop={stop} />
 
-      <WaveformDisplay analyserRef={analyserRef} isActive={status === "listening"} />
-      <SignalSpectrogram analyserRef={analyserRef} isActive={status === "listening"} hasSignal={!!reading} />
+      {/* Primary: the detected note — the dominant element, tuner-like */}
+      <div className="relative flex flex-col items-center gap-1 overflow-hidden py-8 text-center">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 flex items-center justify-center text-navy opacity-[0.08]"
+        >
+          <WaveformFragment className="h-24 w-full" />
+        </div>
 
-      <div className="rounded-lg border border-zinc-200 p-6 dark:border-zinc-800">
-        {status === "listening" || reading ? (
-          <div className="flex flex-col gap-2 font-mono text-lg">
-            <div>
-              周波数: <span className="font-bold">{reading ? `${reading.frequency.toFixed(2)} Hz` : "ー"}</span>
-            </div>
-            <div>
-              ノート:{" "}
-              <span className="font-bold">
-                {reading
-                  ? `${midiToNoteName(reading.midiNote)} (${reading.centsOff > 0 ? "+" : ""}${reading.centsOff.toFixed(1)}¢)`
-                  : "ー"}
-              </span>
-            </div>
-            <div>ピッチクラス: {reading ? reading.pitchClass : "ー"}</div>
-            <div>信頼度(dB基準): {reading ? `${(reading.confidence * 100).toFixed(0)}%` : "ー"}</div>
-            <div>
-              解析窓: {reading ? (reading.resolution === "fast" ? "速い(2048)" : "低音用(4096)") : "ー"}
-            </div>
+        <div
+          className={`relative font-mono text-7xl font-semibold tabular-nums transition-colors ${
+            isActive ? "text-[#2a78d6] dark:text-[#3987e5]" : "text-zinc-300 dark:text-zinc-700"
+          }`}
+        >
+          {reading ? midiToNoteName(reading.midiNote) : "ー"}
+        </div>
+        <div className={`relative font-mono text-lg ${isActive ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-400"}`}>
+          {reading ? `${reading.frequency.toFixed(1)} Hz` : "ー Hz"}
+        </div>
+        {reading && (
+          <div className="relative font-mono text-xs text-zinc-400">
+            {reading.centsOff > 0 ? "+" : ""}
+            {reading.centsOff.toFixed(1)}¢ / ピッチクラス {reading.pitchClass}
           </div>
-        ) : (
-          <p className="text-zinc-400">マイク未接続</p>
         )}
       </div>
 
-      {latency && (
-        <div className="rounded-lg border border-zinc-200 p-6 font-mono text-sm dark:border-zinc-800">
-          <p className="mb-2 font-sans font-semibold text-base">レイテンシ実測</p>
-          <div>バッファ由来の遅延(固定): {latency.bufferLatencyMs.toFixed(1)} ms</div>
-          <div>YIN処理時間(直近): {latency.lastProcessingMs.toFixed(2)} ms</div>
-          <div>YIN処理時間(直近30フレーム平均): {latency.avgProcessingMs.toFixed(2)} ms</div>
-          <div className="mt-2 font-bold">
-            合計目安: {totalLatencyMs?.toFixed(1)} ms{" "}
-            {totalLatencyMs != null && (
-              <span className={totalLatencyMs < 100 ? "text-green-600" : "text-red-500"}>
-                ({totalLatencyMs < 100 ? "目標達成" : "目標超過 — バッファ/処理の見直しが必要"})
-              </span>
-            )}
-          </div>
+      {/* Secondary: confidence, resolution, latency — visible but de-emphasized */}
+      <div className="flex flex-col gap-1 border-t border-zinc-200 pt-4 text-xs text-zinc-400 dark:border-zinc-800">
+        <div className="flex flex-wrap gap-x-6">
+          <span>信頼度(dB基準): {reading ? `${(reading.confidence * 100).toFixed(0)}%` : "ー"}</span>
+          <span>解析窓: {reading ? (reading.resolution === "fast" ? "速い(2048)" : "低音用(4096)") : "ー"}</span>
         </div>
-      )}
+        {latency && (
+          <div className="flex flex-wrap gap-x-6">
+            <span>バッファ由来の遅延: {latency.bufferLatencyMs.toFixed(1)} ms</span>
+            <span>YIN処理時間(平均): {latency.avgProcessingMs.toFixed(2)} ms</span>
+            <span>
+              合計目安: {totalLatencyMs?.toFixed(1)} ms
+              {totalLatencyMs != null && totalLatencyMs >= 100 && <span className="text-red-500">(目標超過)</span>}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Waveform / spectrogram */}
+      <div className="flex flex-col gap-4">
+        <WaveformDisplay analyserRef={analyserRef} isActive={status === "listening"} />
+        <SignalSpectrogram analyserRef={analyserRef} isActive={status === "listening"} hasSignal={!!reading} />
+      </div>
+
+      <p className="text-xs text-zinc-400">音声はブラウザ内で処理され、サーバーには送信されません。</p>
     </main>
   );
 }

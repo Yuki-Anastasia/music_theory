@@ -90,7 +90,7 @@ export default function TonnetzView({ trajectory }: TonnetzViewProps) {
   const hovered = hoverIndex != null ? pathPoints[hoverIndex] : null;
 
   return (
-    <div className="rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
+    <div className="py-2">
       <div className="mb-1 flex justify-between text-xs text-zinc-500">
         <span>Tonnetz軌跡(薄い点=確信度低、色が濃いほど後の時刻)</span>
         {hovered && (

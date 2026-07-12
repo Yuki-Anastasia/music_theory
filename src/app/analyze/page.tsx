@@ -3,6 +3,9 @@
 import { useState } from "react";
 import SongUploader from "@/components/SongUploader";
 import ScoreUploader from "@/components/ScoreUploader";
+import WaveformFragment from "@/components/decoration/WaveformFragment";
+import StaffFragment from "@/components/decoration/StaffFragment";
+import TonnetzFragment from "@/components/decoration/TonnetzFragment";
 import type { ScoreAnalysis, NotatedKeyPoint, NotatedChordPoint } from "@/lib/score/musicXml";
 import { keyLabel } from "@/lib/theory/keyProfile";
 import OverviewTab from "@/components/analyze/OverviewTab";
@@ -64,6 +67,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "expression", label: "リズム・表現" },
   { id: "ai", label: "AI解説" },
 ];
+
+// One contextual decoration accent next to the tab bar, varying with the
+// active tab's domain — a single motif, not one per section.
+const TAB_ACCENTS: Partial<Record<TabId, typeof StaffFragment>> = {
+  tonality: StaffFragment,
+  harmony: TonnetzFragment,
+  expression: WaveformFragment,
+};
 
 export default function AnalyzeSongPage() {
   const [status, setStatus] = useState<Status>("idle");
@@ -216,27 +227,38 @@ export default function AnalyzeSongPage() {
       }
     : null;
 
+  const TabAccent = TAB_ACCENTS[activeTab];
+
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8">
-      <div>
-        <h1 className="text-2xl font-semibold">曲を解析する</h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          曲ファイルをアップロードするか、マイクで録音してください。Basic
-          Pitch(ブラウザ内、和音・複数声部対応)で解析し、音符のタイムラインを表示します。
-          1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。
-          記譜ソフトをお使いの場合は、MusicXMLファイルを直接アップロードすることもできます(音声解析特有のピッチ推定誤りを回避できます)。
-        </p>
+      <div className="relative overflow-hidden">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 hidden w-56 text-navy opacity-[0.12] lg:block"
+        >
+          <WaveformFragment className="h-full w-full" />
+        </div>
+
+        <div className="relative flex max-w-xl flex-col gap-6">
+          <div>
+            <p className="text-xs font-medium tracking-[0.15em] text-navy">INPUT</p>
+            <h1 className="mt-1 text-2xl font-semibold">曲を解析する</h1>
+            <p className="mt-2 text-sm text-zinc-500">
+              曲ファイルをアップロードするか、マイクで録音してください。Basic
+              Pitch(ブラウザ内、和音・複数声部対応)で解析し、音符のタイムラインを表示します。
+              1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。
+            </p>
+          </div>
+
+          <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
+
+          <div className="border-t border-zinc-200 pt-4 text-xs text-zinc-400 dark:border-zinc-800">
+            または、楽譜データから精密に解析
+          </div>
+
+          <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
+        </div>
       </div>
-
-      <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
-
-      <div className="flex items-center gap-3 text-xs text-zinc-400">
-        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-        または
-        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-      </div>
-
-      <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
 
       {status === "analyzing" && (
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -262,20 +284,25 @@ export default function AnalyzeSongPage() {
 
       {status === "done" && (
         <div className="flex flex-col gap-6">
-          <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={
-                  activeTab === tab.id
-                    ? "border-b-2 border-[#2a78d6] px-4 py-2 text-sm font-semibold text-[#2a78d6] dark:border-[#3987e5] dark:text-[#3987e5]"
-                    : "border-b-2 border-transparent px-4 py-2 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                }
-              >
-                {tab.label}
-              </button>
-            ))}
+          <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800">
+            <div className="flex gap-1">
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={
+                    activeTab === tab.id
+                      ? "border-b-2 border-navy px-4 py-2 text-sm text-navy"
+                      : "border-b-2 border-transparent px-4 py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+                  }
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {TabAccent && (
+              <TabAccent className="mb-2 hidden h-6 w-16 shrink-0 text-navy opacity-30 sm:block" />
+            )}
           </div>
 
           {activeTab === "overview" && (

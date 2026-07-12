@@ -88,15 +88,15 @@ export default function SignalSpectrogram({ analyserRef, isActive, hasSignal }: 
 
   return (
     <div
-      className={`rounded-lg border-2 p-2 transition-colors ${
-        hasSignal ? "border-green-500" : "border-zinc-300 dark:border-zinc-700"
+      className={`border-y py-2 transition-colors ${
+        hasSignal ? "border-[#2a78d6] dark:border-[#3987e5]" : "border-zinc-100 dark:border-zinc-900"
       }`}
     >
       <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
         <span>
           スペクトログラム(0–{MAX_DISPLAY_FREQ / 1000}kHz、左→右に時間経過)
         </span>
-        <span className={hasSignal ? "font-bold text-green-600" : "text-zinc-400"}>
+        <span className={hasSignal ? "font-medium text-[#2a78d6] dark:text-[#3987e5]" : "text-zinc-400"}>
           {hasSignal ? "● 音を検出中" : "○ 無音"}
         </span>
       </div>
