@@ -3,6 +3,7 @@ import MetricCard from "@/components/analyze/MetricCard";
 import SectionHeader from "@/components/analyze/SectionHeader";
 import type { TonnetzTimelinePoint } from "@/lib/theory/tonnetzTimeline";
 import type { AestheticMetrics, ConsonanceEstimate, PredictabilityEstimate } from "@/lib/theory/aestheticMetrics";
+import type { CounterpointAnalysis, MotionType } from "@/lib/theory/counterpoint";
 import { PITCH_CLASS_NAMES } from "@/lib/audio/pitch";
 
 export interface HarmonyTabData {
@@ -13,11 +14,22 @@ export interface HarmonyTabData {
   onGenerateMarkov: () => void;
   /** Chord names as notated in a MusicXML score import (null for audio-transcribed songs). */
   notatedChordText: string | null;
+  /** Voice-leading motion between notated parts — score imports with 2+ parts only. */
+  counterpoint: CounterpointAnalysis | null;
 }
 
+const MOTION_LABEL: Record<MotionType, string> = { contrary: "反行", oblique: "斜行", similar: "並行", parallel: "平行" };
+
 export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
-  const { tonnetzTrajectory, aestheticMetrics, markovSequence, markovMetrics, onGenerateMarkov, notatedChordText } =
-    data;
+  const {
+    tonnetzTrajectory,
+    aestheticMetrics,
+    markovSequence,
+    markovMetrics,
+    onGenerateMarkov,
+    notatedChordText,
+    counterpoint,
+  } = data;
 
   return (
     <div className="flex flex-col gap-10">
@@ -71,6 +83,55 @@ export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
               value={`ラグ${aestheticMetrics.selfSimilarity.bestLagNotes}音で相関 ${aestheticMetrics.selfSimilarity.correlation.toFixed(2)}`}
               note="1に近いほど、その間隔で旋律が反復"
             />
+          </div>
+        </div>
+      )}
+
+      {counterpoint && counterpoint.pairs.length > 0 && (
+        <div>
+          <SectionHeader
+            label="VOICE LEADING"
+            heading="複声部の対位法チェック"
+            description={`各パートを瞬間ごとに最高音1音へ単純化(単声化)し、パートの組ごとに声部間の運動(反行/斜行/並行/平行)を分類しています。いずれかのパートが休符の瞬間は比較から除外しています。平行5度・平行8度は古典的な対位法(Fuxのspecies counterpoint)で避けるべきとされる進行です。${
+              counterpoint.totalPartsFound > counterpoint.partsAnalyzed.length
+                ? ` パートが${counterpoint.totalPartsFound}あるため、先頭の${counterpoint.partsAnalyzed.length}パートのみ比較しています。`
+                : ""
+            }`}
+          />
+          <div className="overflow-x-auto border-y border-zinc-100 dark:border-zinc-900">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 text-left text-zinc-500 dark:border-zinc-800">
+                  <th className="p-3 font-normal">パート</th>
+                  {(Object.keys(MOTION_LABEL) as MotionType[]).map((type) => (
+                    <th key={type} className="p-3 font-normal">
+                      {MOTION_LABEL[type]}
+                    </th>
+                  ))}
+                  <th className="p-3 font-normal">平行5度/8度</th>
+                </tr>
+              </thead>
+              <tbody>
+                {counterpoint.pairs.map((pair) => (
+                  <tr
+                    key={`${pair.partA}-${pair.partB}`}
+                    className="border-b border-zinc-200 last:border-0 dark:border-zinc-800"
+                  >
+                    <td className="p-3 text-zinc-500">
+                      {pair.partA} - {pair.partB}
+                    </td>
+                    {(Object.keys(MOTION_LABEL) as MotionType[]).map((type) => (
+                      <td key={type} className="p-3">
+                        {pair.motionPercentages[type].toFixed(0)}%
+                      </td>
+                    ))}
+                    <td className="p-3">
+                      {pair.parallelFifthsCount}/{pair.parallelOctavesCount}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

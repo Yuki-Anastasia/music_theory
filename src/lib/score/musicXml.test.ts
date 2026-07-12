@@ -208,6 +208,76 @@ describe("parseMusicXmlString", () => {
     ]);
   });
 
+  it("defaults meterTimeline to 4/4 per measure when no <time> is notated", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>
+        </measure>
+        <measure number="2">
+          <note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>
+        </measure>
+      </part>`);
+
+    const { meterTimeline } = parseMusicXmlString(xml);
+
+    // divisions=1, default tempo 120bpm -> 0.5s per quarter note; duration=4 -> 2s per measure.
+    expect(meterTimeline).toEqual([
+      { time: 0, numerator: 4, denominator: 4 },
+      { time: 2, numerator: 4, denominator: 4 },
+    ]);
+  });
+
+  it("reads <attributes><time> and carries a signature change forward to later bars", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>3</duration></note>
+        </measure>
+        <measure number="2">
+          <attributes><time><beats>6</beats><beat-type>8</beat-type></time></attributes>
+          <note><pitch><step>D</step><octave>4</octave></pitch><duration>6</duration></note>
+        </measure>
+        <measure number="3">
+          <note><pitch><step>E</step><octave>4</octave></pitch><duration>6</duration></note>
+        </measure>
+      </part>`);
+
+    const { meterTimeline } = parseMusicXmlString(xml);
+
+    // divisions=1, default tempo 120bpm -> 0.5s per quarter note; duration 3 -> 1.5s, duration 6 -> 3s.
+    expect(meterTimeline).toEqual([
+      { time: 0, numerator: 3, denominator: 4 },
+      { time: 1.5, numerator: 6, denominator: 8 },
+      { time: 4.5, numerator: 6, denominator: 8 }, // carried forward, no new <time> in measure 3
+    ]);
+  });
+
+  it("takes meterTimeline from the first part only", () => {
+    const xml = scorePartwise(
+      `
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions><time><beats>3</beats><beat-type>4</beat-type></time></attributes>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>3</duration></note>
+        </measure>
+      </part>
+      <part id="P2">
+        <measure number="1">
+          <attributes><divisions>1</divisions><time><beats>5</beats><beat-type>4</beat-type></time></attributes>
+          <note><pitch><step>C</step><octave>3</octave></pitch><duration>5</duration></note>
+        </measure>
+      </part>`,
+      `<score-part id="P2"><part-name>Bass</part-name></score-part>`
+    );
+
+    const { meterTimeline } = parseMusicXmlString(xml);
+
+    expect(meterTimeline).toEqual([{ time: 0, numerator: 3, denominator: 4 }]);
+  });
+
   it("extracts a notated chord-symbol timeline from <harmony>, including slash chords", () => {
     const xml = scorePartwise(`
       <part id="P1">

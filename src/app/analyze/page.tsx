@@ -6,7 +6,8 @@ import ScoreUploader from "@/components/ScoreUploader";
 import WaveformFragment from "@/components/decoration/WaveformFragment";
 import StaffFragment from "@/components/decoration/StaffFragment";
 import TonnetzFragment from "@/components/decoration/TonnetzFragment";
-import type { ScoreAnalysis, NotatedKeyPoint, NotatedChordPoint } from "@/lib/score/musicXml";
+import type { ScoreAnalysis, NotatedKeyPoint, NotatedChordPoint, MeterPoint } from "@/lib/score/musicXml";
+import type { ScoreConsistencyWarning } from "@/lib/score/scoreConsistency";
 import { keyLabel } from "@/lib/theory/keyProfile";
 import OverviewTab from "@/components/analyze/OverviewTab";
 import TonalityTab from "@/components/analyze/TonalityTab";
@@ -30,6 +31,8 @@ import { dynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
 import { estimateValence, estimateArousal } from "@/lib/theory/emotionEstimate";
 import { separateVoices } from "@/lib/theory/voiceSeparation";
 import { estimateSongArc } from "@/lib/theory/songArc";
+import { analyzeMeter } from "@/lib/theory/meterAnalysis";
+import { analyzeCounterpoint } from "@/lib/theory/counterpoint";
 
 type Status = "idle" | "analyzing" | "done" | "error";
 type TabId = "overview" | "tonality" | "harmony" | "expression" | "ai";
@@ -90,6 +93,9 @@ export default function AnalyzeSongPage() {
   const [markovSequence, setMarkovSequence] = useState<number[] | null>(null);
   const [notatedKeyTimeline, setNotatedKeyTimeline] = useState<NotatedKeyPoint[]>([]);
   const [notatedChordTimeline, setNotatedChordTimeline] = useState<NotatedChordPoint[]>([]);
+  const [meterTimeline, setMeterTimeline] = useState<MeterPoint[]>([]);
+  const [scorePartNames, setScorePartNames] = useState<string[]>([]);
+  const [scoreWarnings, setScoreWarnings] = useState<ScoreConsistencyWarning[]>([]);
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -99,6 +105,9 @@ export default function AnalyzeSongPage() {
     setErrorMessage(null);
     setNotatedKeyTimeline([]);
     setNotatedChordTimeline([]);
+    setMeterTimeline([]);
+    setScorePartNames([]);
+    setScoreWarnings([]);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
@@ -113,13 +122,16 @@ export default function AnalyzeSongPage() {
     }
   };
 
-  const handleScoreReady = (analysis: ScoreAnalysis, sourceLabel: string) => {
+  const handleScoreReady = (analysis: ScoreAnalysis, sourceLabel: string, warnings: ScoreConsistencyWarning[]) => {
     setStatus("done");
     setLabel(sourceLabel);
     setErrorMessage(null);
     setEvents(analysis.events);
     setNotatedKeyTimeline(analysis.notatedKeyTimeline);
     setNotatedChordTimeline(analysis.notatedChordTimeline);
+    setMeterTimeline(analysis.meterTimeline);
+    setScorePartNames(analysis.partNames);
+    setScoreWarnings(warnings);
   };
 
   const handleGenerateMarkov = () => {
@@ -143,6 +155,8 @@ export default function AnalyzeSongPage() {
           metrics: aestheticMetrics,
           mood,
           arc,
+          meter: meterAnalysis,
+          counterpoint: counterpointAnalysis,
         }),
       });
       const data = await res.json();
@@ -198,6 +212,15 @@ export default function AnalyzeSongPage() {
     mood && voices
       ? estimateSongArc(events, voices.melody, tonnetzTrajectory, keyTimeline, mood.tempo.bpm, maxTime)
       : [];
+
+  // Both are score-import-only: meterTimeline/scorePartNames stay empty for
+  // audio-transcribed input (see handleReady above), so these naturally
+  // resolve to null there.
+  const meterAnalysis =
+    meterTimeline.length > 0 && events.length > 0
+      ? analyzeMeter(events, meterTimeline, maxTime, tonnetzTrajectory, notatedChordTimeline)
+      : null;
+  const counterpointAnalysis = scorePartNames.length >= 2 ? analyzeCounterpoint(events, scorePartNames) : null;
 
   // partLabel is only set for score-imported events (see ScoreUploader/musicXml.ts);
   // audio-transcribed events leave it undefined, so this is naturally empty for that path.
@@ -284,6 +307,23 @@ export default function AnalyzeSongPage() {
 
       {status === "done" && (
         <div className="flex flex-col gap-6">
+          {scoreWarnings.length > 0 && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950">
+              <p className="mb-2 font-semibold text-amber-800 dark:text-amber-300">
+                複数ファイルの整合性に関する注意
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-xs text-amber-800 dark:text-amber-300">
+                {scoreWarnings.map((w, i) => (
+                  <li key={i}>{w.message}</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                これは自動判定の目安であり、正当な理由(演奏に伴う揺れ、移調楽器の記譜など)で差が出ている場合もあります。
+                解析結果はそのまま表示していますが、パート間の比較(対位法チェックなど)は同じタイムラインである前提に基づく点にご注意ください。
+              </p>
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800">
             <div className="flex gap-1">
               {TABS.map((tab) => (
@@ -320,11 +360,12 @@ export default function AnalyzeSongPage() {
                 markovMetrics,
                 onGenerateMarkov: handleGenerateMarkov,
                 notatedChordText,
+                counterpoint: counterpointAnalysis,
               }}
             />
           )}
           {activeTab === "expression" && (
-            <ExpressionTab data={{ tempo, rhythmEntropy, dynamics, valence, arousal, arc }} />
+            <ExpressionTab data={{ tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter: meterAnalysis }} />
           )}
           {activeTab === "ai" && (
             <AIExplanationTab

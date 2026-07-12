@@ -5,6 +5,8 @@ import type { TonnetzTimelinePoint } from "./tonnetzTimeline";
 import type { AestheticMetrics } from "./aestheticMetrics";
 import type { MoodFacts } from "./summaryPrompt";
 import type { ArcSection } from "./songArc";
+import type { MeterAnalysisResult } from "./meterAnalysis";
+import type { CounterpointAnalysis } from "./counterpoint";
 
 const EMPTY_METRICS: AestheticMetrics = {
   consonance: { averageGradus: 0, consonanceScore: 0 },
@@ -117,5 +119,55 @@ describe("buildAnalysisFacts", () => {
     expect(facts).toContain("協和度平均Γ=11.00");
     expect(facts).toContain("穏やか・安らぎ");
     expect(facts).toContain("緊張・不安");
+  });
+
+  it("still works with the pre-existing 7-arg call (meter/counterpoint omitted)", () => {
+    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    expect(facts).not.toContain("シンコペーション");
+    expect(facts).not.toContain("対位法");
+  });
+
+  it("includes the meter/syncopation section when meter is present", () => {
+    const meter: MeterAnalysisResult = {
+      meterSummary: [{ time: 0, numerator: 4, denominator: 4, beatWeights: [] }],
+      syncopation: { rawScore: 3, maxPossibleScore: 5, normalizedScore: 0.6, averageContributionPerPair: 3, pairCount: 1 },
+      harmonicRhythmAlignment: null,
+    };
+    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, meter);
+    expect(facts).toContain("シンコペーション指数: 0.60");
+    expect(facts).toContain("4/4拍子");
+  });
+
+  it("omits the meter section entirely when meter is null (audio-transcribed input)", () => {
+    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, null);
+    expect(facts).not.toContain("シンコペーション");
+  });
+
+  it("includes the counterpoint section, listing per-pair motion percentages and parallel counts", () => {
+    const counterpoint: CounterpointAnalysis = {
+      pairs: [
+        {
+          partA: "Soprano",
+          partB: "Alto",
+          verticalityCount: 3,
+          motionCounts: { contrary: 1, oblique: 0, similar: 0, parallel: 1 },
+          motionPercentages: { contrary: 50, oblique: 0, similar: 0, parallel: 50 },
+          parallelFifthsCount: 2,
+          parallelOctavesCount: 0,
+          parallelMotionEvents: [],
+        },
+      ],
+      partsAnalyzed: ["Soprano", "Alto"],
+      totalPartsFound: 2,
+    };
+    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, null, counterpoint);
+    expect(facts).toContain("Soprano - Alto");
+    expect(facts).toContain("反行50%");
+    expect(facts).toContain("平行5度2回");
+  });
+
+  it("omits the counterpoint section when counterpoint is omitted", () => {
+    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    expect(facts).not.toContain("対位法");
   });
 });

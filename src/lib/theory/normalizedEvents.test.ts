@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { NoteEventTime } from "@spotify/basic-pitch";
-import { notesToNormalizedEvents, pitchClassHistogram, activePitchClassesAt } from "./normalizedEvents";
+import { notesToNormalizedEvents, pitchClassHistogram, activePitchClassesAt, highestActiveNoteAt } from "./normalizedEvents";
 
 function note(pitchMidi: number, startTimeSeconds: number, durationSeconds: number, amplitude = 1): NoteEventTime {
   return { pitchMidi, startTimeSeconds, durationSeconds, amplitude };
@@ -54,5 +54,27 @@ describe("activePitchClassesAt", () => {
     expect(activePitchClassesAt(events, 0.5)).toEqual(new Set([0]));
     expect(activePitchClassesAt(events, 1.5)).toEqual(new Set([0, 7]));
     expect(activePitchClassesAt(events, 3)).toEqual(new Set());
+  });
+});
+
+describe("highestActiveNoteAt", () => {
+  it("returns null when nothing is sounding", () => {
+    const events = notesToNormalizedEvents([note(60, 0, 1, 1)]);
+    expect(highestActiveNoteAt(events, 5)).toBeNull();
+  });
+
+  it("returns the higher of two overlapping notes", () => {
+    const events = notesToNormalizedEvents([
+      note(60, 0, 2, 1), // C4, 0-2s
+      note(67, 1, 1, 1), // G4, 1-2s
+    ]);
+    expect(highestActiveNoteAt(events, 1.5)?.midiNote).toBe(67);
+    expect(highestActiveNoteAt(events, 0.5)?.midiNote).toBe(60);
+  });
+
+  it("respects the half-open [time, time+duration) window", () => {
+    const events = notesToNormalizedEvents([note(60, 0, 1, 1)]);
+    expect(highestActiveNoteAt(events, 0)?.midiNote).toBe(60);
+    expect(highestActiveNoteAt(events, 1)).toBeNull();
   });
 });

@@ -50,6 +50,12 @@ export interface NotatedChordPoint {
   label: string; // e.g. "C", "G7", "Am", "C/E"
 }
 
+export interface MeterPoint {
+  time: number; // seconds, bar start
+  numerator: number;
+  denominator: number;
+}
+
 export interface ScoreAnalysis {
   events: NormalizedNoteEvent[];
   /** Key-signature changes as actually notated (<attributes><key>), not estimated from pitch content. Taken from the first part only — staves share one key signature at a given time. */
@@ -58,6 +64,8 @@ export interface ScoreAnalysis {
   notatedChordTimeline: NotatedChordPoint[];
   /** Part/instrument names in document order, for a "part composition" display. */
   partNames: string[];
+  /** One entry per bar (time signature carried forward from the last <attributes><time>), first part only — staves share one time signature. Empty when the score never specifies one explicitly and has no bars. */
+  meterTimeline: MeterPoint[];
 }
 
 /**
@@ -148,6 +156,7 @@ export function parseMusicXmlString(xml: string): ScoreAnalysis {
   const notatedChordTimeline: NotatedChordPoint[] = [];
   const partNames: string[] = [];
   let notatedKeyTimeline: NotatedKeyPoint[] = [];
+  let meterTimeline: MeterPoint[] = [];
 
   parts.forEach((part, index) => {
     const partLabel = partNameById.get(part.getAttribute("id") ?? "");
@@ -156,13 +165,16 @@ export function parseMusicXmlString(xml: string): ScoreAnalysis {
     const result = parsePart(part, tempoBpm, partLabel);
     events.push(...result.events);
     notatedChordTimeline.push(...result.harmonyMarks);
-    if (index === 0) notatedKeyTimeline = result.keyChanges; // staves share one key signature; avoid duplicating per part
+    if (index === 0) {
+      notatedKeyTimeline = result.keyChanges; // staves share one key signature; avoid duplicating per part
+      meterTimeline = result.meterChanges; // staves share one time signature; avoid duplicating per part
+    }
   });
 
   events.sort((a, b) => a.time - b.time);
   notatedChordTimeline.sort((a, b) => a.time - b.time);
 
-  return { events, notatedKeyTimeline, notatedChordTimeline, partNames };
+  return { events, notatedKeyTimeline, notatedChordTimeline, partNames, meterTimeline };
 }
 
 function findTempoBpm(doc: Document): number {
@@ -209,6 +221,7 @@ interface PartParseResult {
   events: NormalizedNoteEvent[];
   keyChanges: NotatedKeyPoint[];
   harmonyMarks: NotatedChordPoint[];
+  meterChanges: MeterPoint[];
 }
 
 /**
@@ -223,17 +236,22 @@ function parsePart(part: Element, tempoBpm: number, partLabel: string | undefine
   const events: NormalizedNoteEvent[] = [];
   const keyChanges: NotatedKeyPoint[] = [];
   const harmonyMarks: NotatedChordPoint[] = [];
+  const meterChanges: MeterPoint[] = [];
   const measures = Array.from(part.children).filter((el) => el.tagName === "measure");
 
   let divisions = 1; // ticks per quarter note; redefined by <attributes><divisions>
   let cursorSeconds = 0;
   let previousOnsetSeconds = 0; // onset a <chord/> note attaches to
   let currentLoudness = 1; // updated by <direction><dynamics>, applied to subsequent notes
+  let timeSigNumerator = 4; // redefined by <attributes><time>; MusicXML default when unspecified
+  let timeSigDenominator = 4;
   const openTies = new Map<number, NormalizedNoteEvent>(); // midiNote -> event awaiting <tie type="stop">
 
   const secondsPerTick = () => 60 / tempoBpm / divisions;
 
   for (const measure of measures) {
+    const measureStartSeconds = cursorSeconds; // captured before this measure's <backup>/<forward> can move the cursor
+
     for (const child of Array.from(measure.children)) {
       if (child.tagName === "attributes") {
         const divisionsValue = childNumber(child, "divisions");
@@ -247,6 +265,14 @@ function parsePart(part: Element, tempoBpm: number, partLabel: string | undefine
           const majorTonic = (((7 * fifths) % 12) + 12) % 12;
           const tonic = mode === "minor" ? (majorTonic - 3 + 12) % 12 : majorTonic;
           keyChanges.push({ time: cursorSeconds, tonic, mode });
+        }
+
+        const timeEl = child.getElementsByTagName("time")[0];
+        const beats = timeEl ? childNumber(timeEl, "beats") : NaN;
+        const beatType = timeEl ? childNumber(timeEl, "beat-type") : NaN;
+        if (Number.isFinite(beats) && beats > 0 && Number.isFinite(beatType) && beatType > 0) {
+          timeSigNumerator = beats;
+          timeSigDenominator = beatType;
         }
         continue;
       }
@@ -324,7 +350,9 @@ function parsePart(part: Element, tempoBpm: number, partLabel: string | undefine
       previousOnsetSeconds = onsetSeconds;
       if (!isChord) cursorSeconds += durationSeconds;
     }
+
+    meterChanges.push({ time: measureStartSeconds, numerator: timeSigNumerator, denominator: timeSigDenominator });
   }
 
-  return { events, keyChanges, harmonyMarks };
+  return { events, keyChanges, harmonyMarks, meterChanges };
 }

@@ -60,3 +60,21 @@ export function activePitchClassesAt(events: NormalizedNoteEvent[], timeSeconds:
   }
   return active;
 }
+
+/**
+ * The highest-pitched note actively sounding at a given moment among the
+ * given events — e.g. one part's own notes, when that single part is
+ * itself polyphonic (a piano LH voicing a chord), reduced to a single
+ * line for per-part comparison (see counterpoint.ts). Same half-open
+ * [time, time+duration) window as activePitchClassesAt. Returns null when
+ * nothing is sounding (a rest).
+ */
+export function highestActiveNoteAt(events: NormalizedNoteEvent[], timeSeconds: number): NormalizedNoteEvent | null {
+  let highest: NormalizedNoteEvent | null = null;
+  for (const event of events) {
+    if (event.time <= timeSeconds && timeSeconds < event.time + event.durationSeconds) {
+      if (!highest || event.midiNote > highest.midiNote) highest = event;
+    }
+  }
+  return highest;
+}

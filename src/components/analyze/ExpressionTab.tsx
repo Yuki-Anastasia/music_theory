@@ -5,6 +5,7 @@ import { describeMoodQuadrant } from "@/lib/theory/emotionEstimate";
 import type { TempoEstimate, RhythmicEntropyEstimate } from "@/lib/theory/rhythmAnalysis";
 import type { DynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
 import type { ArcSection } from "@/lib/theory/songArc";
+import type { MeterAnalysisResult } from "@/lib/theory/meterAnalysis";
 
 export interface ExpressionTabData {
   tempo: TempoEstimate | null;
@@ -13,6 +14,8 @@ export interface ExpressionTabData {
   valence: number | null;
   arousal: number | null;
   arc: ArcSection[];
+  /** Meter/syncopation analysis — score imports only (null for audio-transcribed songs, which have no bar data). */
+  meter: MeterAnalysisResult | null;
 }
 
 function formatTime(seconds: number): string {
@@ -27,7 +30,7 @@ function formatTime(seconds: number): string {
  * than as unrelated dashboard statistics.
  */
 export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
-  const { tempo, rhythmEntropy, dynamics, valence, arousal, arc } = data;
+  const { tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter } = data;
 
   return (
     <div className="flex flex-col gap-10">
@@ -53,6 +56,45 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
               value={`${rhythmEntropy.entropyBits.toFixed(2)} bit (最大 ${rhythmEntropy.maxEntropyBits.toFixed(2)} bit)`}
               note="値が大きいほど音価のバリエーションが豊富"
             />
+          </div>
+        </div>
+      )}
+
+      {meter && (
+        <div>
+          <SectionHeader
+            label="EXPRESSION — METER"
+            heading="拍子・シンコペーションの推定"
+            description="記譜された拍子から拍節の強弱グリッドを作り、強拍を避けて弱拍・裏拍に音を置く度合いを簡易的に推定しています(Longuet-Higgins & Lee, 1984のシンコペーション概念を単純化したもので、GTTMのような完全な拍節理論ではありません)。楽譜からのインポートでのみ利用できます。"
+          />
+          <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
+            <MetricCard
+              title="拍子"
+              theory="記譜された拍子記号(<attributes><time> / MasterBar)"
+              formula="numerator / denominator"
+              value={meter.meterSummary.map((p) => `${formatTime(p.time)}〜 ${p.numerator}/${p.denominator}`).join(", ")}
+              note="拍子が変わる箇所ごとに区切って表示"
+            />
+            <MetricCard
+              title="シンコペーション指数"
+              theory="Longuet-Higgins & Lee (1984) のシンコペーション概念を単純化"
+              formula="Σ max(0, strongerWeight-ownWeight) / (pairCount×weightRange)"
+              value={`${meter.syncopation.normalizedScore.toFixed(2)}(0〜1)`}
+              note="値が大きいほど、強拍を避けて弱拍・裏拍に音を置く傾向"
+            />
+            {meter.harmonicRhythmAlignment && (
+              <MetricCard
+                title="和声変化と拍節の整合"
+                theory={
+                  meter.harmonicRhythmAlignment.source === "notatedChords"
+                    ? "記譜されたコードネーム基準"
+                    : "検出された和音基準(Tonnetz軌跡、1秒窓の粗い推定)"
+                }
+                formula="strongBeatCount / totalChordChanges"
+                value={`${(meter.harmonicRhythmAlignment.strongBeatFraction * 100).toFixed(0)}%`}
+                note="和音が変わる瞬間のうち、強拍/準強拍で起きている割合"
+              />
+            )}
           </div>
         </div>
       )}
