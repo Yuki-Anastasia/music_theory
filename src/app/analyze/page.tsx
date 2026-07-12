@@ -2,13 +2,15 @@
 
 import { useState } from "react";
 import SongUploader from "@/components/SongUploader";
+import ScoreUploader from "@/components/ScoreUploader";
+import type { ScoreAnalysis, NotatedKeyPoint, NotatedChordPoint } from "@/lib/score/musicXml";
+import { keyLabel } from "@/lib/theory/keyProfile";
 import OverviewTab from "@/components/analyze/OverviewTab";
 import TonalityTab from "@/components/analyze/TonalityTab";
 import HarmonyTab from "@/components/analyze/HarmonyTab";
-import TimbreTab from "@/components/analyze/TimbreTab";
+import ExpressionTab from "@/components/analyze/ExpressionTab";
 import AIExplanationTab, { SummaryStatus } from "@/components/analyze/AIExplanationTab";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
-import { analyzeInstruments, InstrumentTagWindow } from "@/lib/audio/instrumentTagger";
 import { notesToNormalizedEvents, pitchClassHistogram, NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
 import { estimateKeyTimeline } from "@/lib/theory/keyTimeline";
 import { estimateFourierTimeline } from "@/lib/theory/fourierTimeline";
@@ -20,19 +22,46 @@ import {
   consonanceOfHistogram,
   conditionalPitchEntropy,
 } from "@/lib/theory/aestheticMetrics";
+import { estimateTempo, rhythmicEntropy } from "@/lib/theory/rhythmAnalysis";
+import { dynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
+import { estimateValence, estimateArousal } from "@/lib/theory/emotionEstimate";
+import { separateVoices } from "@/lib/theory/voiceSeparation";
+import { estimateSongArc } from "@/lib/theory/songArc";
 
 type Status = "idle" | "analyzing" | "done" | "error";
-type TabId = "overview" | "tonality" | "harmony" | "timbre" | "ai";
+type TabId = "overview" | "tonality" | "harmony" | "expression" | "ai";
 
 const SOFT_TARGET_MS = 30_000;
 const MARKOV_SEQUENCE_LENGTH = 32;
 const MARKOV_NOTE_DURATION_SEC = 0.5;
+// The lowest-sounding note strongly implies a chord's root (figured-bass
+// convention), so it's weighted up before feeding chord detection.
+const BASS_WEIGHT = 1.5;
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/** Collapses consecutive identical notated keys into labeled time ranges, e.g. "0:00-1:20 ト長調". */
+function formatNotatedKeySegments(timeline: NotatedKeyPoint[], durationSec: number): string {
+  const segments: { start: number; end: number; label: string }[] = [];
+  for (const point of timeline) {
+    const label = keyLabel(point);
+    const last = segments[segments.length - 1];
+    if (last && last.label === label) continue;
+    segments.push({ start: point.time, end: durationSec, label });
+  }
+  for (let i = 0; i < segments.length - 1; i++) segments[i].end = segments[i + 1].start;
+  return segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`).join(", ");
+}
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "概要" },
   { id: "tonality", label: "調性" },
   { id: "harmony", label: "和声" },
-  { id: "timbre", label: "音色" },
+  { id: "expression", label: "リズム・表現" },
   { id: "ai", label: "AI解説" },
 ];
 
@@ -48,9 +77,8 @@ export default function AnalyzeSongPage() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [markovSequence, setMarkovSequence] = useState<number[] | null>(null);
-  const [instrumentTags, setInstrumentTags] = useState<InstrumentTagWindow[]>([]);
-  const [instrumentTagsStatus, setInstrumentTagsStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [instrumentTagsError, setInstrumentTagsError] = useState<string | null>(null);
+  const [notatedKeyTimeline, setNotatedKeyTimeline] = useState<NotatedKeyPoint[]>([]);
+  const [notatedChordTimeline, setNotatedChordTimeline] = useState<NotatedChordPoint[]>([]);
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -58,21 +86,8 @@ export default function AnalyzeSongPage() {
     setProgress(0);
     setElapsedMs(0);
     setErrorMessage(null);
-    setInstrumentTagsStatus("loading");
-    setInstrumentTagsError(null);
-
-    // Runs independently of the Basic Pitch pipeline below — a slow or
-    // failing instrument tagger (e.g. the YAMNet model isn't in place yet)
-    // must not block the note analysis from completing and displaying.
-    void analyzeInstruments(input)
-      .then((tags) => {
-        setInstrumentTags(tags);
-        setInstrumentTagsStatus("done");
-      })
-      .catch((err) => {
-        setInstrumentTagsError(err instanceof Error ? err.message : String(err));
-        setInstrumentTagsStatus("error");
-      });
+    setNotatedKeyTimeline([]);
+    setNotatedChordTimeline([]);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
@@ -85,6 +100,15 @@ export default function AnalyzeSongPage() {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setStatus("error");
     }
+  };
+
+  const handleScoreReady = (analysis: ScoreAnalysis, sourceLabel: string) => {
+    setStatus("done");
+    setLabel(sourceLabel);
+    setErrorMessage(null);
+    setEvents(analysis.events);
+    setNotatedKeyTimeline(analysis.notatedKeyTimeline);
+    setNotatedChordTimeline(analysis.notatedChordTimeline);
   };
 
   const handleGenerateMarkov = () => {
@@ -104,10 +128,10 @@ export default function AnalyzeSongPage() {
           label,
           durationSec: maxTime,
           keyTimeline,
-          fourierTimeline,
           tonnetzTrajectory,
           metrics: aestheticMetrics,
-          instrumentTags,
+          mood,
+          arc,
         }),
       });
       const data = await res.json();
@@ -125,8 +149,56 @@ export default function AnalyzeSongPage() {
   const histogramMax = Math.max(1, ...histogram);
   const keyTimeline = events.length > 0 ? estimateKeyTimeline(events) : [];
   const fourierTimeline = events.length > 0 ? estimateFourierTimeline(events) : [];
-  const tonnetzTrajectory = events.length > 0 ? estimateTonnetzTrajectory(events) : [];
-  const aestheticMetrics = events.length > 0 ? analyzeAesthetics(events, histogram, tonnetzTrajectory) : null;
+  const voices = events.length > 0 ? separateVoices(events) : null;
+  // Chord detection uses harmony + bass only, excluding the melody line —
+  // otherwise melodic non-chord tones (passing/neighbor tones) get counted
+  // as if they were part of the underlying harmony. The bass is weighted up
+  // since the lowest note strongly implies the chord's root.
+  const harmonyEvents = voices
+    ? [
+        ...voices.accompaniment,
+        ...voices.bass.map((e) => ({ ...e, confidence: Math.min(1, e.confidence * BASS_WEIGHT) })),
+      ]
+    : [];
+  const tonnetzTrajectory = harmonyEvents.length > 0 ? estimateTonnetzTrajectory(harmonyEvents) : [];
+  const aestheticMetrics = voices ? analyzeAesthetics(voices.melody, histogram, tonnetzTrajectory) : null;
+  const tempo = events.length > 0 ? estimateTempo(events) : null;
+  const rhythmEntropy = events.length > 0 ? rhythmicEntropy(events) : null;
+  const dynamics = events.length > 0 ? dynamicsSummary(events) : null;
+  const valence =
+    aestheticMetrics && tempo
+      ? estimateValence(keyTimeline, aestheticMetrics.consonance.consonanceScore, aestheticMetrics.harmonicTension)
+      : null;
+  const arousal =
+    tempo && dynamics && rhythmEntropy && aestheticMetrics
+      ? estimateArousal(
+          tempo.bpm,
+          dynamics,
+          rhythmEntropy.entropyBits,
+          aestheticMetrics.harmonicTension,
+          aestheticMetrics.selfSimilarity
+        )
+      : null;
+  const mood =
+    tempo && rhythmEntropy && dynamics && valence !== null && arousal !== null
+      ? { tempo, rhythmEntropy, dynamics, valence, arousal }
+      : null;
+  const arc =
+    mood && voices
+      ? estimateSongArc(events, voices.melody, tonnetzTrajectory, keyTimeline, mood.tempo.bpm, maxTime)
+      : [];
+
+  // partLabel is only set for score-imported events (see ScoreUploader/musicXml.ts);
+  // audio-transcribed events leave it undefined, so this is naturally empty for that path.
+  const partComposition = Object.entries(
+    events.reduce<Record<string, number>>((counts, e) => {
+      if (e.partLabel) counts[e.partLabel] = (counts[e.partLabel] ?? 0) + 1;
+      return counts;
+    }, {})
+  );
+  const notatedKeyText = notatedKeyTimeline.length > 0 ? formatNotatedKeySegments(notatedKeyTimeline, maxTime) : null;
+  const notatedChordText =
+    notatedChordTimeline.length > 0 ? notatedChordTimeline.map((c) => c.label).join(" → ") : null;
 
   const markovEvents = markovSequence
     ? markovSequence.map((pitchClass, i) => ({
@@ -152,10 +224,19 @@ export default function AnalyzeSongPage() {
           曲ファイルをアップロードするか、マイクで録音してください。Basic
           Pitch(ブラウザ内、和音・複数声部対応)で解析し、音符のタイムラインを表示します。
           1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。
+          記譜ソフトをお使いの場合は、MusicXMLファイルを直接アップロードすることもできます(音声解析特有のピッチ推定誤りを回避できます)。
         </p>
       </div>
 
       <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
+
+      <div className="flex items-center gap-3 text-xs text-zinc-400">
+        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+        または
+        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+      </div>
+
+      <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
 
       {status === "analyzing" && (
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -198,9 +279,11 @@ export default function AnalyzeSongPage() {
           </div>
 
           {activeTab === "overview" && (
-            <OverviewTab data={{ label, events, maxTime, histogram, histogramMax }} />
+            <OverviewTab data={{ label, events, maxTime, histogram, histogramMax, partComposition, voices }} />
           )}
-          {activeTab === "tonality" && <TonalityTab data={{ keyTimeline, fourierTimeline }} />}
+          {activeTab === "tonality" && (
+            <TonalityTab data={{ keyTimeline, fourierTimeline, notatedKeyText }} />
+          )}
           {activeTab === "harmony" && (
             <HarmonyTab
               data={{
@@ -209,11 +292,12 @@ export default function AnalyzeSongPage() {
                 markovSequence,
                 markovMetrics,
                 onGenerateMarkov: handleGenerateMarkov,
+                notatedChordText,
               }}
             />
           )}
-          {activeTab === "timbre" && (
-            <TimbreTab data={{ instrumentTags, instrumentTagsStatus, instrumentTagsError }} />
+          {activeTab === "expression" && (
+            <ExpressionTab data={{ tempo, rhythmEntropy, dynamics, valence, arousal, arc }} />
           )}
           {activeTab === "ai" && (
             <AIExplanationTab

@@ -229,15 +229,22 @@ export interface AestheticMetrics {
   selfSimilarity: SelfSimilarityEstimate;
 }
 
+/**
+ * `histogram` should reflect the full texture (consonance/dissonance is
+ * heard across all voices), while `melodyEvents` should be the extracted
+ * melody line only (see voiceSeparation.ts) — predictability and
+ * self-similarity are musically about the tune, not a flattened mix of
+ * melody, bass, and accompaniment notes.
+ */
 export function analyzeAesthetics(
-  events: NormalizedNoteEvent[],
+  melodyEvents: NormalizedNoteEvent[],
   histogram: number[],
   tonnetzTrajectory: TonnetzTimelinePoint[]
 ): AestheticMetrics {
   return {
     consonance: consonanceOfHistogram(histogram),
     harmonicTension: harmonicTensionOfTrajectory(tonnetzTrajectory),
-    predictability: conditionalPitchEntropy(events),
-    selfSimilarity: melodicSelfSimilarity(events),
+    predictability: conditionalPitchEntropy(melodyEvents),
+    selfSimilarity: melodicSelfSimilarity(melodyEvents),
   };
 }

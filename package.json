@@ -12,8 +12,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
     "@spotify/basic-pitch": "^1.0.1",
-    "@tensorflow/tfjs": "^3.21.0",
     "d3": "^7.9.0",
+    "fflate": "^0.8.3",
     "next": "16.2.10",
     "pitchfinder": "^2.3.4",
     "react": "19.2.4",
@@ -28,6 +28,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"
