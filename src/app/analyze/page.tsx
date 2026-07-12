@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import SongUploader from "@/components/SongUploader";
+import ScoreUploader from "@/components/ScoreUploader";
 import PianoRollViewer from "@/components/PianoRollViewer";
 import KeyTimelineChart from "@/components/KeyTimelineChart";
 import FourierTimelineChart from "@/components/FourierTimelineChart";
 import TonnetzView from "@/components/TonnetzView";
-import InstrumentTagsPanel from "@/components/InstrumentTagsPanel";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
-import { analyzeInstruments, InstrumentTagWindow } from "@/lib/audio/instrumentTagger";
 import { notesToNormalizedEvents, pitchClassHistogram, NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
 import { estimateKeyTimeline } from "@/lib/theory/keyTimeline";
 import { estimateFourierTimeline } from "@/lib/theory/fourierTimeline";
 import { estimateTonnetzTrajectory } from "@/lib/theory/tonnetzTimeline";
-import { PITCH_CLASS_NAMES } from "@/lib/audio/pitch";
+import { PITCH_CLASS_NAMES, midiToNoteName } from "@/lib/audio/pitch";
 import {
   analyzeAesthetics,
   buildPitchClassTransitionMatrix,
@@ -21,6 +20,12 @@ import {
   consonanceOfHistogram,
   conditionalPitchEntropy,
 } from "@/lib/theory/aestheticMetrics";
+import { estimateTempo, rhythmicEntropy } from "@/lib/theory/rhythmAnalysis";
+import { dynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
+import { estimateValence, estimateArousal, describeMoodQuadrant } from "@/lib/theory/emotionEstimate";
+import { separateVoices } from "@/lib/theory/voiceSeparation";
+import { estimateSongArc } from "@/lib/theory/songArc";
+import MoodQuadrantChart from "@/components/MoodQuadrantChart";
 
 type Status = "idle" | "analyzing" | "done" | "error";
 type SummaryStatus = "idle" | "loading" | "done" | "error";
@@ -29,6 +34,15 @@ const SOFT_TARGET_MS = 30_000;
 const HISTOGRAM_BAR_MAX_HEIGHT_PX = 128;
 const MARKOV_SEQUENCE_LENGTH = 32;
 const MARKOV_NOTE_DURATION_SEC = 0.5;
+// The lowest-sounding note strongly implies a chord's root (figured-bass
+// convention), so it's weighted up before feeding chord detection.
+const BASS_WEIGHT = 1.5;
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 function MetricCard({
   title,
@@ -65,9 +79,6 @@ export default function AnalyzeSongPage() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [markovSequence, setMarkovSequence] = useState<number[] | null>(null);
-  const [instrumentTags, setInstrumentTags] = useState<InstrumentTagWindow[]>([]);
-  const [instrumentTagsStatus, setInstrumentTagsStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
-  const [instrumentTagsError, setInstrumentTagsError] = useState<string | null>(null);
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -75,21 +86,6 @@ export default function AnalyzeSongPage() {
     setProgress(0);
     setElapsedMs(0);
     setErrorMessage(null);
-    setInstrumentTagsStatus("loading");
-    setInstrumentTagsError(null);
-
-    // Runs independently of the Basic Pitch pipeline below — a slow or
-    // failing instrument tagger (e.g. the YAMNet model isn't in place yet)
-    // must not block the note analysis from completing and displaying.
-    void analyzeInstruments(input)
-      .then((tags) => {
-        setInstrumentTags(tags);
-        setInstrumentTagsStatus("done");
-      })
-      .catch((err) => {
-        setInstrumentTagsError(err instanceof Error ? err.message : String(err));
-        setInstrumentTagsStatus("error");
-      });
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
@@ -102,6 +98,13 @@ export default function AnalyzeSongPage() {
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setStatus("error");
     }
+  };
+
+  const handleScoreReady = (scoreEvents: NormalizedNoteEvent[], sourceLabel: string) => {
+    setStatus("done");
+    setLabel(sourceLabel);
+    setErrorMessage(null);
+    setEvents(scoreEvents);
   };
 
   const handleGenerateMarkov = () => {
@@ -121,10 +124,10 @@ export default function AnalyzeSongPage() {
           label,
           durationSec: maxTime,
           keyTimeline,
-          fourierTimeline,
           tonnetzTrajectory,
           metrics: aestheticMetrics,
-          instrumentTags,
+          mood,
+          arc,
         }),
       });
       const data = await res.json();
@@ -142,8 +145,44 @@ export default function AnalyzeSongPage() {
   const histogramMax = Math.max(1, ...histogram);
   const keyTimeline = events.length > 0 ? estimateKeyTimeline(events) : [];
   const fourierTimeline = events.length > 0 ? estimateFourierTimeline(events) : [];
-  const tonnetzTrajectory = events.length > 0 ? estimateTonnetzTrajectory(events) : [];
-  const aestheticMetrics = events.length > 0 ? analyzeAesthetics(events, histogram, tonnetzTrajectory) : null;
+  const voices = events.length > 0 ? separateVoices(events) : null;
+  // Chord detection uses harmony + bass only, excluding the melody line —
+  // otherwise melodic non-chord tones (passing/neighbor tones) get counted
+  // as if they were part of the underlying harmony. The bass is weighted up
+  // since the lowest note strongly implies the chord's root.
+  const harmonyEvents = voices
+    ? [
+        ...voices.accompaniment,
+        ...voices.bass.map((e) => ({ ...e, confidence: Math.min(1, e.confidence * BASS_WEIGHT) })),
+      ]
+    : [];
+  const tonnetzTrajectory = harmonyEvents.length > 0 ? estimateTonnetzTrajectory(harmonyEvents) : [];
+  const aestheticMetrics = voices ? analyzeAesthetics(voices.melody, histogram, tonnetzTrajectory) : null;
+  const tempo = events.length > 0 ? estimateTempo(events) : null;
+  const rhythmEntropy = events.length > 0 ? rhythmicEntropy(events) : null;
+  const dynamics = events.length > 0 ? dynamicsSummary(events) : null;
+  const valence =
+    aestheticMetrics && tempo
+      ? estimateValence(keyTimeline, aestheticMetrics.consonance.consonanceScore, aestheticMetrics.harmonicTension)
+      : null;
+  const arousal =
+    tempo && dynamics && rhythmEntropy && aestheticMetrics
+      ? estimateArousal(
+          tempo.bpm,
+          dynamics,
+          rhythmEntropy.entropyBits,
+          aestheticMetrics.harmonicTension,
+          aestheticMetrics.selfSimilarity
+        )
+      : null;
+  const mood =
+    tempo && rhythmEntropy && dynamics && valence !== null && arousal !== null
+      ? { tempo, rhythmEntropy, dynamics, valence, arousal }
+      : null;
+  const arc =
+    mood && voices
+      ? estimateSongArc(events, voices.melody, tonnetzTrajectory, keyTimeline, mood.tempo.bpm, maxTime)
+      : [];
 
   const markovEvents = markovSequence
     ? markovSequence.map((pitchClass, i) => ({
@@ -169,10 +208,19 @@ export default function AnalyzeSongPage() {
           曲ファイルをアップロードするか、マイクで録音してください。Basic
           Pitch(ブラウザ内、和音・複数声部対応)で解析し、音符のタイムラインを表示します。
           1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。
+          記譜ソフトをお使いの場合は、MusicXMLファイルを直接アップロードすることもできます(音声解析特有のピッチ推定誤りを回避できます)。
         </p>
       </div>
 
       <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
+
+      <div className="flex items-center gap-3 text-xs text-zinc-400">
+        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+        または
+        <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+      </div>
+
+      <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
 
       {status === "analyzing" && (
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
@@ -205,6 +253,29 @@ export default function AnalyzeSongPage() {
             <PianoRollViewer events={events} />
           </div>
 
+          {voices && (
+            <div>
+              <h2 className="mb-2 text-lg font-semibold">抽出されたメロディーライン</h2>
+              <p className="mb-3 text-xs text-zinc-500">
+                各瞬間で最も高い音をメロディー、最も低い音をベース、残りを伴奏として分類しています(skyline
+                algorithm)。この分離結果を、和音進行の検出やこの下の予測可能性・自己相似性の計算に使っています。
+              </p>
+              <div className="rounded-lg border border-zinc-200 p-4 text-xs dark:border-zinc-800">
+                <p className="mb-2 text-zinc-500">
+                  メロディー {voices.melody.length}音 / ベース {voices.bass.length}音 / 伴奏{" "}
+                  {voices.accompaniment.length}音
+                </p>
+                <p className="break-words font-mono">
+                  {voices.melody
+                    .slice(0, 60)
+                    .map((e) => midiToNoteName(e.midiNote))
+                    .join(" → ")}
+                  {voices.melody.length > 60 && " …"}
+                </p>
+              </div>
+            </div>
+          )}
+
           <div>
             <h2 className="mb-2 text-lg font-semibold">ピッチクラス・ヒストグラム(鳴っていた時間の合計)</h2>
             <div className="flex items-end gap-1">
@@ -234,16 +305,6 @@ export default function AnalyzeSongPage() {
             <h2 className="mb-2 text-lg font-semibold">Tonnetz軌跡(和音格子)</h2>
             <TonnetzView trajectory={tonnetzTrajectory} />
           </div>
-
-          {instrumentTagsStatus === "loading" && (
-            <p className="text-xs text-zinc-500">楽器・声質タグを推定中…</p>
-          )}
-          {instrumentTagsStatus === "error" && instrumentTagsError && (
-            <p className="text-xs text-zinc-500">
-              楽器・声質タグの推定に失敗しました(YAMNetモデルが未配置の可能性があります): {instrumentTagsError}
-            </p>
-          )}
-          <InstrumentTagsPanel windows={instrumentTags} />
 
           {aestheticMetrics && (
             <div>
@@ -280,6 +341,101 @@ export default function AnalyzeSongPage() {
                   value={`ラグ${aestheticMetrics.selfSimilarity.bestLagNotes}音で相関 ${aestheticMetrics.selfSimilarity.correlation.toFixed(2)}`}
                   note="1に近いほど、その間隔で旋律が反復"
                 />
+              </div>
+            </div>
+          )}
+
+          {tempo && rhythmEntropy && dynamics && (
+            <div>
+              <h2 className="mb-2 text-lg font-semibold">リズム・強弱の推定</h2>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <MetricCard
+                  title="テンポ"
+                  theory="オンセット密度の自己相関によるビート周期推定"
+                  formula="argmax_τ r(τ)、bpm = 60 / τ"
+                  value={`約 ${tempo.bpm} BPM`}
+                  note={tempo.confidence === "low" ? "確信度低(規則的な拍を検出できず)" : "規則的な拍を検出"}
+                />
+                <MetricCard
+                  title="リズムの複雑さ"
+                  theory="音価分布のシャノンエントロピー"
+                  formula="H = -Σ p(bucket) log₂ p(bucket)"
+                  value={`${rhythmEntropy.entropyBits.toFixed(2)} bit (最大 ${rhythmEntropy.maxEntropyBits.toFixed(2)} bit)`}
+                  note="値が大きいほど音価のバリエーションが豊富"
+                />
+                <MetricCard
+                  title="強弱(ダイナミクス)"
+                  theory="音符振幅(Basic Pitchのamplitude)の区間平均"
+                  formula="range = max(区間平均) - min(区間平均)"
+                  value={`平均 ${dynamics.averageLoudness.toFixed(2)} / レンジ ${dynamics.dynamicRange.toFixed(2)}`}
+                  note={
+                    dynamics.trend === "crescendo"
+                      ? "だんだん強くなる傾向"
+                      : dynamics.trend === "diminuendo"
+                        ? "だんだん弱くなる傾向"
+                        : "おおむね一定"
+                  }
+                />
+              </div>
+            </div>
+          )}
+
+          {valence !== null && arousal !== null && (
+            <div>
+              <h2 className="mb-2 text-lg font-semibold">感情・印象の推定(Russellの感情円環モデル)</h2>
+              <p className="mb-3 text-xs text-zinc-500">
+                キー(長調/短調)・協和度・テンポ・強弱・リズムの複雑さから合成した仮説的な推定です。検証済みの感情認識モデルではありません。
+              </p>
+              <MoodQuadrantChart valence={valence} arousal={arousal} />
+            </div>
+          )}
+
+          {arc.length > 0 && (
+            <div>
+              <h2 className="mb-2 text-lg font-semibold">曲の推移(メロディーの変化点で区切った区間ごと)</h2>
+              <p className="mb-3 text-xs text-zinc-500">
+                固定の等分割ではなく、メロディーのピッチクラス分布の変化(novelty検出)から区間の切れ目を検出しています。
+                明確な変化点が無い曲は1区間のままになります。各区間で協和度・強弱・感情推定を再計算し、曲がどう変化していくかを見るためのものです。
+              </p>
+              <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-left text-zinc-500 dark:border-zinc-800">
+                      <th className="p-3 font-normal"></th>
+                      {arc.map((s) => (
+                        <th key={s.startSec} className="p-3 font-normal">
+                          {formatTime(s.startSec)}-{formatTime(s.endSec)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-zinc-200 dark:border-zinc-800">
+                      <td className="p-3 text-zinc-500">協和度(平均Γ)</td>
+                      {arc.map((s) => (
+                        <td key={s.startSec} className="p-3">
+                          {s.consonance.averageGradus.toFixed(2)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-zinc-200 dark:border-zinc-800">
+                      <td className="p-3 text-zinc-500">強弱(平均音量)</td>
+                      {arc.map((s) => (
+                        <td key={s.startSec} className="p-3">
+                          {s.dynamics.averageLoudness.toFixed(2)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="p-3 text-zinc-500">感情推定</td>
+                      {arc.map((s) => (
+                        <td key={s.startSec} className="p-3">
+                          {describeMoodQuadrant(s.valence, s.arousal)}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

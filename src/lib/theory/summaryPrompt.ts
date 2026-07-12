@@ -1,10 +1,20 @@
 import type { KeyTimelinePoint } from "./keyTimeline";
-import type { FourierTimelinePoint } from "./fourierTimeline";
 import type { TonnetzTimelinePoint } from "./tonnetzTimeline";
 import type { AestheticMetrics } from "./aestheticMetrics";
-import type { InstrumentTagWindow } from "../audio/instrumentTagger";
+import type { TempoEstimate, RhythmicEntropyEstimate } from "./rhythmAnalysis";
+import type { DynamicsSummary } from "./dynamicsAnalysis";
+import type { ArcSection } from "./songArc";
 import { keyLabel } from "./keyProfile";
 import { chordLabel } from "./tonnetz";
+import { describeMoodQuadrant } from "./emotionEstimate";
+
+export interface MoodFacts {
+  tempo: TempoEstimate;
+  rhythmEntropy: RhythmicEntropyEstimate;
+  dynamics: DynamicsSummary;
+  valence: number;
+  arousal: number;
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -36,16 +46,6 @@ function summarizeKeyTimeline(keyTimeline: KeyTimelinePoint[], durationSec: numb
   return `キー推移: ${lines.join(", ")}`;
 }
 
-function summarizeFourierTimeline(fourierTimeline: FourierTimelinePoint[]): string {
-  if (fourierTimeline.length === 0) return "ダイアトニック度: データなし";
-
-  const x5Values = fourierTimeline.map((p) => p.coefficients.find((c) => c.k === 5)!.normalizedMagnitude);
-  const avg = x5Values.reduce((s, v) => s + v, 0) / x5Values.length;
-  const min = Math.min(...x5Values);
-  const max = Math.max(...x5Values);
-  return `ダイアトニック度(|X5|、0-1): 平均${avg.toFixed(2)}、最小${min.toFixed(2)}、最大${max.toFixed(2)}`;
-}
-
 function summarizeTonnetzTrajectory(tonnetzTrajectory: TonnetzTimelinePoint[]): string {
   if (tonnetzTrajectory.length === 0) return "和音進行: データなし";
   const sequence = tonnetzTrajectory.map((p) => chordLabel(p.chord)).join(" → ");
@@ -53,41 +53,58 @@ function summarizeTonnetzTrajectory(tonnetzTrajectory: TonnetzTimelinePoint[]): 
 }
 
 /**
- * These are named mathematical theories applied to the song's data, not a
- * proof of "beauty" — the facts text says so explicitly so the LLM doesn't
- * overstate what the numbers mean.
+ * Consonance and harmonic tension are dropped here since they're already
+ * recomputed per-section in summarizeSongArc — restating the whole-song
+ * average would just duplicate that data. Predictability/self-similarity
+ * have no per-section counterpart, so they stay as whole-song facts.
  */
 function summarizeAestheticMetrics(metrics: AestheticMetrics): string {
-  const { consonance, harmonicTension, predictability, selfSimilarity } = metrics;
+  const { predictability, selfSimilarity } = metrics;
   return [
     "美しさと相関しうる数理的特徴(証明ではなく仮説的な視点):",
-    `- 協和度(オイラーの快さの尺度Gradus Suavitatis、Γ(n)=1+Σaᵢ(pᵢ-1)、値が小さいほど協和的): 平均Γ=${consonance.averageGradus.toFixed(2)}`,
-    `- 和声的テンション(声部進行の最小移動距離、半音、値が大きいほど遠い和音への跳躍): 平均${harmonicTension.averageVoiceLeadingDistance.toFixed(2)}、最大${harmonicTension.maxVoiceLeadingDistance.toFixed(2)}`,
     `- 予測可能性(シャノンの条件付きエントロピーH(Xₙ₊₁|Xₙ)、bit、最大log₂12≈${predictability.maxEntropyBits.toFixed(2)}、値が小さいほど次の音が予測しやすい): ${predictability.conditionalEntropyBits.toFixed(2)}`,
     `- 旋律の自己相似性(自己相関、1に近いほど反復的): ラグ${selfSimilarity.bestLagNotes}音で相関${selfSimilarity.correlation.toFixed(2)}`,
   ].join("\n");
 }
 
-/**
- * YAMNet is a general-purpose audio tagger over whole time windows, not a
- * per-note instrument separator — the facts text says so explicitly.
- */
-function summarizeInstrumentTags(instrumentTags: InstrumentTagWindow[]): string {
-  if (instrumentTags.length === 0) return "楽器・声質タグ: データなし";
+const TREND_LABEL: Record<DynamicsSummary["trend"], string> = {
+  crescendo: "だんだん強くなる(クレッシェンド傾向)",
+  diminuendo: "だんだん弱くなる(ディミヌエンド傾向)",
+  stable: "おおむね一定",
+};
 
-  const maxScoreByLabel = new Map<string, number>();
-  for (const window of instrumentTags) {
-    for (const tag of window.tags) {
-      const prev = maxScoreByLabel.get(tag.label) ?? 0;
-      if (tag.score > prev) maxScoreByLabel.set(tag.label, tag.score);
-    }
-  }
-  const top = [...maxScoreByLabel.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([label, score]) => `${label}(${Math.round(score * 100)}%)`)
-    .join(", ");
-  return `楽器・声質タグ(YAMNet、一般音声分類、曲全体での区間ごとの最高確度): ${top}`;
+/**
+ * Dynamics trend and the mood quadrant (Russell's circumplex model) are
+ * dropped here since summarizeSongArc already gives the per-section version
+ * of both — a single whole-song number would flatten exactly the flow the
+ * facts are meant to convey. Tempo has no per-section counterpart (arc
+ * reuses the whole-song estimate), so it stays here.
+ */
+function summarizeMood(mood: MoodFacts): string {
+  const { tempo, rhythmEntropy } = mood;
+  return [
+    "テンポ・リズムの推定:",
+    `- テンポ: 約${tempo.bpm}BPM${tempo.confidence === "low" ? "(確信度低、規則的な拍を検出できず)" : ""}`,
+    `- リズムの複雑さ(音価分布のシャノンエントロピー、bit、最大${rhythmEntropy.maxEntropyBits.toFixed(2)}): ${rhythmEntropy.entropyBits.toFixed(2)}`,
+  ].join("\n");
+}
+
+/**
+ * Per-section (序盤/中盤/終盤 by default) breakdown of consonance, dynamics,
+ * and mood — the same whole-song metrics recomputed on time slices, so the
+ * facts describe how the song changes rather than a single aggregate.
+ */
+function summarizeSongArc(sections: ArcSection[]): string {
+  if (sections.length === 0) return "曲の推移: データなし";
+  const lines = sections.map((s) => {
+    const label = describeMoodQuadrant(s.valence, s.arousal);
+    return (
+      `- ${formatTime(s.startSec)}-${formatTime(s.endSec)}: 協和度平均Γ=${s.consonance.averageGradus.toFixed(2)}、` +
+      `強弱平均${s.dynamics.averageLoudness.toFixed(2)}(${TREND_LABEL[s.dynamics.trend]})、` +
+      `valence=${s.valence.toFixed(2)}/arousal=${s.arousal.toFixed(2)}(${label})`
+    );
+  });
+  return ["曲の推移(区間ごと、序盤から終盤への変化):", ...lines].join("\n");
 }
 
 /**
@@ -100,17 +117,17 @@ export function buildAnalysisFacts(
   label: string,
   durationSec: number,
   keyTimeline: KeyTimelinePoint[],
-  fourierTimeline: FourierTimelinePoint[],
   tonnetzTrajectory: TonnetzTimelinePoint[],
   metrics: AestheticMetrics,
-  instrumentTags: InstrumentTagWindow[]
+  mood: MoodFacts,
+  arc: ArcSection[]
 ): string {
   return [
     `曲: ${label}(長さ ${formatTime(durationSec)})`,
     summarizeKeyTimeline(keyTimeline, durationSec),
-    summarizeFourierTimeline(fourierTimeline),
     summarizeTonnetzTrajectory(tonnetzTrajectory),
     summarizeAestheticMetrics(metrics),
-    summarizeInstrumentTags(instrumentTags),
+    summarizeMood(mood),
+    summarizeSongArc(arc),
   ].join("\n");
 }
