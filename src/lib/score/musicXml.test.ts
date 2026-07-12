@@ -26,11 +26,11 @@ describe("parseMusicXmlString", () => {
         </measure>
       </part>`);
 
-    const events = parseMusicXmlString(xml);
+    const { events } = parseMusicXmlString(xml);
 
     expect(events).toEqual([
-      { time: 0, durationSeconds: 0.5, midiNote: 60, pitchClass: 0, confidence: 1 },
-      { time: 0.5, durationSeconds: 0.5, midiNote: 62, pitchClass: 2, confidence: 1 },
+      { time: 0, durationSeconds: 0.5, midiNote: 60, pitchClass: 0, confidence: 1, partLabel: "Music" },
+      { time: 0.5, durationSeconds: 0.5, midiNote: 62, pitchClass: 2, confidence: 1, partLabel: "Music" },
     ]);
   });
 
@@ -44,7 +44,7 @@ describe("parseMusicXmlString", () => {
         </measure>
       </part>`);
 
-    const events = parseMusicXmlString(xml);
+    const { events } = parseMusicXmlString(xml);
 
     expect(events.map((e) => e.midiNote)).toEqual([66, 70]); // F#4, Bb4
   });
@@ -60,7 +60,7 @@ describe("parseMusicXmlString", () => {
         </measure>
       </part>`);
 
-    const events = parseMusicXmlString(xml);
+    const { events } = parseMusicXmlString(xml);
 
     expect(events.map((e) => e.time)).toEqual([0, 0, 0]);
     expect(events.map((e) => e.midiNote)).toEqual([60, 64, 67]); // C major triad
@@ -76,7 +76,7 @@ describe("parseMusicXmlString", () => {
         </measure>
       </part>`);
 
-    const events = parseMusicXmlString(xml);
+    const { events } = parseMusicXmlString(xml);
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ time: 0.5, midiNote: 60 });
@@ -94,7 +94,7 @@ describe("parseMusicXmlString", () => {
         </measure>
       </part>`);
 
-    const events = parseMusicXmlString(xml);
+    const { events } = parseMusicXmlString(xml);
 
     expect(events).toEqual(
       expect.arrayContaining([
@@ -105,7 +105,7 @@ describe("parseMusicXmlString", () => {
     );
   });
 
-  it("merges multiple parts into one time-sorted stream", () => {
+  it("merges multiple parts into one time-sorted stream, tagging each note with its part name", () => {
     const xml = scorePartwise(
       `
       <part id="P1">
@@ -123,11 +123,13 @@ describe("parseMusicXmlString", () => {
       `<score-part id="P2"><part-name>Bass</part-name></score-part>`
     );
 
-    const events = parseMusicXmlString(xml);
+    const { events, partNames } = parseMusicXmlString(xml);
 
     expect(events).toHaveLength(2);
     expect(events.map((e) => e.midiNote).sort()).toEqual([48, 60]);
     expect(events.every((e) => e.time === 0)).toBe(true);
+    expect(new Set(events.map((e) => e.partLabel))).toEqual(new Set(["Music", "Bass"]));
+    expect(partNames).toEqual(["Music", "Bass"]);
   });
 
   it("skips grace notes without generating an event or advancing the cursor", () => {
@@ -140,9 +142,97 @@ describe("parseMusicXmlString", () => {
         </measure>
       </part>`);
 
-    const events = parseMusicXmlString(xml);
+    const { events } = parseMusicXmlString(xml);
 
-    expect(events).toEqual([{ time: 0, durationSeconds: 0.5, midiNote: 60, pitchClass: 0, confidence: 1 }]);
+    expect(events).toEqual([
+      { time: 0, durationSeconds: 0.5, midiNote: 60, pitchClass: 0, confidence: 1, partLabel: "Music" },
+    ]);
+  });
+
+  it("merges a tied note across a barline into a single event with combined duration", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="start"/></note>
+        </measure>
+        <measure number="2">
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="stop"/></note>
+          <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+        </measure>
+      </part>`);
+
+    const { events } = parseMusicXmlString(xml);
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ time: 0, durationSeconds: 1, midiNote: 60 });
+    expect(events[1]).toMatchObject({ time: 1, midiNote: 62 });
+  });
+
+  it("applies <dynamics> marks to subsequent notes' confidence", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <direction><direction-type><dynamics><mf/></dynamics></direction-type></direction>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+          <direction><direction-type><dynamics><ff/></dynamics></direction-type></direction>
+          <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration></note>
+        </measure>
+      </part>`);
+
+    const { events } = parseMusicXmlString(xml);
+
+    expect(events[0].confidence).toBeCloseTo(0.65); // mf
+    expect(events[1].confidence).toBeCloseTo(0.9); // ff
+  });
+
+  it("extracts a notated key-signature timeline from the first part", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions><key><fifths>1</fifths><mode>major</mode></key></attributes>
+          <note><pitch><step>G</step><octave>4</octave></pitch><duration>4</duration></note>
+        </measure>
+        <measure number="2">
+          <attributes><key><fifths>0</fifths><mode>minor</mode></key></attributes>
+          <note><pitch><step>A</step><octave>4</octave></pitch><duration>4</duration></note>
+        </measure>
+      </part>`);
+
+    const { notatedKeyTimeline } = parseMusicXmlString(xml);
+
+    expect(notatedKeyTimeline).toEqual([
+      { time: 0, tonic: 7, mode: "major" }, // 1 sharp -> G major
+      { time: 2, tonic: 9, mode: "minor" }, // 0 sharps/flats, minor -> A minor
+    ]);
+  });
+
+  it("extracts a notated chord-symbol timeline from <harmony>, including slash chords", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <harmony>
+            <root><root-step>C</root-step></root>
+            <kind text="">major</kind>
+          </harmony>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>2</duration></note>
+          <harmony>
+            <root><root-step>G</root-step></root>
+            <kind text="7">dominant</kind>
+            <bass><bass-step>B</bass-step></bass>
+          </harmony>
+          <note><pitch><step>G</step><octave>3</octave></pitch><duration>2</duration></note>
+        </measure>
+      </part>`);
+
+    const { notatedChordTimeline } = parseMusicXmlString(xml);
+
+    expect(notatedChordTimeline).toEqual([
+      { time: 0, label: "C" },
+      { time: 1, label: "G7/B" },
+    ]);
   });
 
   it("rejects score-timewise documents", () => {
@@ -166,13 +256,13 @@ describe("parseMxlArchive", () => {
     });
 
     const xml = parseMxlArchive(archive.buffer as ArrayBuffer);
-    expect(parseMusicXmlString(xml)[0]).toMatchObject({ midiNote: 60 });
+    expect(parseMusicXmlString(xml).events[0]).toMatchObject({ midiNote: 60 });
   });
 
   it("falls back to the first .xml entry when there's no container.xml", () => {
     const archive = zipSync({ "score.xml": strToU8(innerXml) });
 
     const xml = parseMxlArchive(archive.buffer as ArrayBuffer);
-    expect(parseMusicXmlString(xml)[0]).toMatchObject({ midiNote: 60 });
+    expect(parseMusicXmlString(xml).events[0]).toMatchObject({ midiNote: 60 });
   });
 });

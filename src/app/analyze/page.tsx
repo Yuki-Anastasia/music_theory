@@ -3,6 +3,8 @@
 import { useState } from "react";
 import SongUploader from "@/components/SongUploader";
 import ScoreUploader from "@/components/ScoreUploader";
+import type { ScoreAnalysis, NotatedKeyPoint, NotatedChordPoint } from "@/lib/score/musicXml";
+import { keyLabel } from "@/lib/theory/keyProfile";
 import PianoRollViewer from "@/components/PianoRollViewer";
 import KeyTimelineChart from "@/components/KeyTimelineChart";
 import FourierTimelineChart from "@/components/FourierTimelineChart";
@@ -44,6 +46,19 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Collapses consecutive identical notated keys into labeled time ranges, e.g. "0:00-1:20 ト長調". */
+function formatNotatedKeySegments(timeline: NotatedKeyPoint[], durationSec: number): string {
+  const segments: { start: number; end: number; label: string }[] = [];
+  for (const point of timeline) {
+    const label = keyLabel(point);
+    const last = segments[segments.length - 1];
+    if (last && last.label === label) continue;
+    segments.push({ start: point.time, end: durationSec, label });
+  }
+  for (let i = 0; i < segments.length - 1; i++) segments[i].end = segments[i + 1].start;
+  return segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`).join(", ");
+}
+
 function MetricCard({
   title,
   theory,
@@ -79,6 +94,8 @@ export default function AnalyzeSongPage() {
   const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [markovSequence, setMarkovSequence] = useState<number[] | null>(null);
+  const [notatedKeyTimeline, setNotatedKeyTimeline] = useState<NotatedKeyPoint[]>([]);
+  const [notatedChordTimeline, setNotatedChordTimeline] = useState<NotatedChordPoint[]>([]);
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -86,6 +103,8 @@ export default function AnalyzeSongPage() {
     setProgress(0);
     setElapsedMs(0);
     setErrorMessage(null);
+    setNotatedKeyTimeline([]);
+    setNotatedChordTimeline([]);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
@@ -100,11 +119,13 @@ export default function AnalyzeSongPage() {
     }
   };
 
-  const handleScoreReady = (scoreEvents: NormalizedNoteEvent[], sourceLabel: string) => {
+  const handleScoreReady = (analysis: ScoreAnalysis, sourceLabel: string) => {
     setStatus("done");
     setLabel(sourceLabel);
     setErrorMessage(null);
-    setEvents(scoreEvents);
+    setEvents(analysis.events);
+    setNotatedKeyTimeline(analysis.notatedKeyTimeline);
+    setNotatedChordTimeline(analysis.notatedChordTimeline);
   };
 
   const handleGenerateMarkov = () => {
@@ -184,6 +205,18 @@ export default function AnalyzeSongPage() {
       ? estimateSongArc(events, voices.melody, tonnetzTrajectory, keyTimeline, mood.tempo.bpm, maxTime)
       : [];
 
+  // partLabel is only set for score-imported events (see ScoreUploader/musicXml.ts);
+  // audio-transcribed events leave it undefined, so this is naturally empty for that path.
+  const partComposition = Object.entries(
+    events.reduce<Record<string, number>>((counts, e) => {
+      if (e.partLabel) counts[e.partLabel] = (counts[e.partLabel] ?? 0) + 1;
+      return counts;
+    }, {})
+  );
+  const notatedKeyText = notatedKeyTimeline.length > 0 ? formatNotatedKeySegments(notatedKeyTimeline, maxTime) : null;
+  const notatedChordText =
+    notatedChordTimeline.length > 0 ? notatedChordTimeline.map((c) => c.label).join(" → ") : null;
+
   const markovEvents = markovSequence
     ? markovSequence.map((pitchClass, i) => ({
         time: i * MARKOV_NOTE_DURATION_SEC,
@@ -250,6 +283,11 @@ export default function AnalyzeSongPage() {
             <h2 className="mb-2 text-lg font-semibold">
               ピアノロール({label}、{events.length}音、{maxTime.toFixed(1)}秒)
             </h2>
+            {partComposition.length > 0 && (
+              <p className="mb-2 text-xs text-zinc-500">
+                パート構成: {partComposition.map(([name, count]) => `${name}(${count}音)`).join("、")}
+              </p>
+            )}
             <PianoRollViewer events={events} />
           </div>
 
@@ -294,6 +332,11 @@ export default function AnalyzeSongPage() {
           <div>
             <h2 className="mb-2 text-lg font-semibold">キーの推移(Krumhansl-Schmuckler)</h2>
             <KeyTimelineChart timeline={keyTimeline} />
+            {notatedKeyText && (
+              <p className="mt-2 text-xs text-zinc-500">
+                記譜された調(推定ではなく楽譜に指定された値): {notatedKeyText}
+              </p>
+            )}
           </div>
 
           <div>
@@ -304,6 +347,11 @@ export default function AnalyzeSongPage() {
           <div>
             <h2 className="mb-2 text-lg font-semibold">Tonnetz軌跡(和音格子)</h2>
             <TonnetzView trajectory={tonnetzTrajectory} />
+            {notatedChordText && (
+              <p className="mt-2 break-words text-xs text-zinc-500">
+                記譜されたコード進行(楽譜のコードネーム表記): {notatedChordText}
+              </p>
+            )}
           </div>
 
           {aestheticMetrics && (

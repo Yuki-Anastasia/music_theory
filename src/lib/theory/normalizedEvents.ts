@@ -12,7 +12,9 @@ export interface NormalizedNoteEvent {
   durationSeconds: number;
   midiNote: number;
   pitchClass: number;
-  confidence: number; // 0-1, from Basic Pitch's note amplitude
+  confidence: number; // 0-1, from Basic Pitch's note amplitude (or a score's dynamics marking)
+  /** Source part/instrument name, when known (score-import path only; audio path leaves this unset). Display-only — doesn't affect voice separation. */
+  partLabel?: string;
 }
 
 export function notesToNormalizedEvents(notes: NoteEventTime[]): NormalizedNoteEvent[] {

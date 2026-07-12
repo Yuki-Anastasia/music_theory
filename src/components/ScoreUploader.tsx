@@ -2,10 +2,10 @@
 
 import { useCallback, useState } from "react";
 import { parseScoreFile } from "@/lib/score/musicXml";
-import type { NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
+import type { ScoreAnalysis } from "@/lib/score/musicXml";
 
 interface ScoreUploaderProps {
-  onReady: (events: NormalizedNoteEvent[], label: string) => void;
+  onReady: (analysis: ScoreAnalysis, label: string) => void;
   disabled?: boolean;
 }
 
@@ -32,9 +32,9 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
       setParseState("parsing");
       setErrorMessage(null);
       try {
-        const events = await parseScoreFile(file);
+        const analysis = await parseScoreFile(file);
         setParseState("idle");
-        onReady(events, file.name);
+        onReady(analysis, file.name);
       } catch (err) {
         setParseState("error");
         setErrorMessage(err instanceof Error ? err.message : String(err));
