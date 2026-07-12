@@ -7,12 +7,12 @@ import WaveformDisplay from "@/components/WaveformDisplay";
 import { midiToNoteName } from "@/lib/audio/pitch";
 
 /**
- * Day-1 proof of concept (spec Part A-2-1 / Part E): the single highest-risk
- * item in the plan is real-time mic pitch-detection latency. This page does
- * nothing but mic -> frequency/note display + latency numbers, so that risk
- * gets measured before any module code is built on top of it.
+ * Real-time mic input: pitch/note detection running entirely in the
+ * browser (YIN algorithm), with a dual-resolution detector (a fast window
+ * for normal-to-high notes, a slower window for low notes) so both ranges
+ * stay responsive.
  */
-export default function MicPoCPage() {
+export default function LivePage() {
   const { status, reading, latency, errorMessage, start, stop, analyserRef } = useMicPitch();
 
   const totalLatencyMs =
@@ -21,11 +21,10 @@ export default function MicPoCPage() {
   return (
     <main className="mx-auto flex max-w-xl flex-col gap-6 p-8">
       <div>
-        <h1 className="text-2xl font-semibold">Day-1 PoC: マイク → 周波数表示</h1>
+        <h1 className="text-2xl font-semibold">ライブモード</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          目標: 検出遅延 &lt; 100ms。速い窓(2048, 目安86Hz以上)と低音用の窓(4096,
-          目安43Hz以上)を並列で解析し、速い窓が使えないときだけ低音用にフォールバックします。
-          単音を歌う/口笛を吹くなどして実測してください。
+          マイクに向かって単音を歌う・楽器を弾く・口笛を吹くなどすると、検出された周波数とノートがリアルタイムに表示されます。
+          音声はブラウザ内で処理され、サーバーには送信されません。
         </p>
       </div>
 

@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import SongUploader from "@/components/SongUploader";
-import PianoRollViewer from "@/components/PianoRollViewer";
-import KeyTimelineChart from "@/components/KeyTimelineChart";
-import FourierTimelineChart from "@/components/FourierTimelineChart";
-import TonnetzView from "@/components/TonnetzView";
-import InstrumentTagsPanel from "@/components/InstrumentTagsPanel";
+import OverviewTab from "@/components/analyze/OverviewTab";
+import TonalityTab from "@/components/analyze/TonalityTab";
+import HarmonyTab from "@/components/analyze/HarmonyTab";
+import TimbreTab from "@/components/analyze/TimbreTab";
+import AIExplanationTab, { SummaryStatus } from "@/components/analyze/AIExplanationTab";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
 import { analyzeInstruments, InstrumentTagWindow } from "@/lib/audio/instrumentTagger";
 import { notesToNormalizedEvents, pitchClassHistogram, NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
 import { estimateKeyTimeline } from "@/lib/theory/keyTimeline";
 import { estimateFourierTimeline } from "@/lib/theory/fourierTimeline";
 import { estimateTonnetzTrajectory } from "@/lib/theory/tonnetzTimeline";
-import { PITCH_CLASS_NAMES } from "@/lib/audio/pitch";
 import {
   analyzeAesthetics,
   buildPitchClassTransitionMatrix,
@@ -23,39 +22,23 @@ import {
 } from "@/lib/theory/aestheticMetrics";
 
 type Status = "idle" | "analyzing" | "done" | "error";
-type SummaryStatus = "idle" | "loading" | "done" | "error";
+type TabId = "overview" | "tonality" | "harmony" | "timbre" | "ai";
 
 const SOFT_TARGET_MS = 30_000;
-const HISTOGRAM_BAR_MAX_HEIGHT_PX = 128;
 const MARKOV_SEQUENCE_LENGTH = 32;
 const MARKOV_NOTE_DURATION_SEC = 0.5;
 
-function MetricCard({
-  title,
-  theory,
-  formula,
-  value,
-  note,
-}: {
-  title: string;
-  theory: string;
-  formula: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <p className="mt-1 text-xs text-zinc-500">{theory}</p>
-      <p className="mt-2 font-mono text-xs text-zinc-500">{formula}</p>
-      <p className="mt-2 text-base font-medium">{value}</p>
-      <p className="mt-1 text-xs text-zinc-500">{note}</p>
-    </div>
-  );
-}
+const TABS: { id: TabId; label: string }[] = [
+  { id: "overview", label: "概要" },
+  { id: "tonality", label: "調性" },
+  { id: "harmony", label: "和声" },
+  { id: "timbre", label: "音色" },
+  { id: "ai", label: "AI解説" },
+];
 
 export default function AnalyzeSongPage() {
   const [status, setStatus] = useState<Status>("idle");
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [label, setLabel] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -198,164 +181,45 @@ export default function AnalyzeSongPage() {
 
       {status === "done" && (
         <div className="flex flex-col gap-6">
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">
-              ピアノロール({label}、{events.length}音、{maxTime.toFixed(1)}秒)
-            </h2>
-            <PianoRollViewer events={events} />
-          </div>
-
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">ピッチクラス・ヒストグラム(鳴っていた時間の合計)</h2>
-            <div className="flex items-end gap-1">
-              {histogram.map((value, pitchClass) => (
-                <div key={pitchClass} className="flex flex-1 flex-col items-center gap-1">
-                  <div
-                    className="w-full rounded-t bg-[#2a78d6] dark:bg-[#3987e5]"
-                    style={{ height: `${Math.max(2, (value / histogramMax) * HISTOGRAM_BAR_MAX_HEIGHT_PX)}px` }}
-                  />
-                  <span className="text-xs text-zinc-500">{PITCH_CLASS_NAMES[pitchClass]}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">キーの推移(Krumhansl-Schmuckler)</h2>
-            <KeyTimelineChart timeline={keyTimeline} />
-          </div>
-
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">フーリエ解析の推移(ピッチクラス集合のDFT)</h2>
-            <FourierTimelineChart timeline={fourierTimeline} />
-          </div>
-
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">Tonnetz軌跡(和音格子)</h2>
-            <TonnetzView trajectory={tonnetzTrajectory} />
-          </div>
-
-          {instrumentTagsStatus === "loading" && (
-            <p className="text-xs text-zinc-500">楽器・声質タグを推定中…</p>
-          )}
-          {instrumentTagsStatus === "error" && instrumentTagsError && (
-            <p className="text-xs text-zinc-500">
-              楽器・声質タグの推定に失敗しました(YAMNetモデルが未配置の可能性があります): {instrumentTagsError}
-            </p>
-          )}
-          <InstrumentTagsPanel windows={instrumentTags} />
-
-          {aestheticMetrics && (
-            <div>
-              <h2 className="mb-2 text-lg font-semibold">美しさと相関しうる数理的特徴</h2>
-              <p className="mb-3 text-xs text-zinc-500">
-                これらは「美しさの証明」ではありません。音楽理論・情報理論上の名前のついた指標との、数学的な相関を示す仮説的な視点です。
-              </p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <MetricCard
-                  title="協和度"
-                  theory="オイラーの快さの尺度 (Gradus Suavitatis, 1739)"
-                  formula="Γ(n) = 1 + Σ aᵢ(pᵢ - 1)"
-                  value={`平均 Γ = ${aestheticMetrics.consonance.averageGradus.toFixed(2)}`}
-                  note="値が小さいほど協和的(完全五度Γ=4、短二度Γ=11)"
-                />
-                <MetricCard
-                  title="和声的テンション"
-                  theory="声部進行の最小移動距離 (Neo-Riemannian理論)"
-                  formula="min Σᵢ dist(aᵢ, b_perm(i))"
-                  value={`平均 ${aestheticMetrics.harmonicTension.averageVoiceLeadingDistance.toFixed(2)}半音 / 最大 ${aestheticMetrics.harmonicTension.maxVoiceLeadingDistance.toFixed(2)}半音`}
-                  note="値が大きいほど、遠い和音への跳躍"
-                />
-                <MetricCard
-                  title="予測可能性"
-                  theory="シャノンの条件付きエントロピー (情報理論, 1948)"
-                  formula="H(Xₙ₊₁|Xₙ) = -Σ p(a,b)log₂p(b|a)"
-                  value={`${aestheticMetrics.predictability.conditionalEntropyBits.toFixed(2)} bit (最大 ${aestheticMetrics.predictability.maxEntropyBits.toFixed(2)} bit)`}
-                  note="値が小さいほど、次の音が予測しやすい"
-                />
-                <MetricCard
-                  title="旋律の自己相似性"
-                  theory="自己相関によるモチーフ検出"
-                  formula="r(τ) = Σ(x[n]-μ)(x[n+τ]-μ) / Σ(x[n]-μ)²"
-                  value={`ラグ${aestheticMetrics.selfSimilarity.bestLagNotes}音で相関 ${aestheticMetrics.selfSimilarity.correlation.toFixed(2)}`}
-                  note="1に近いほど、その間隔で旋律が反復"
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">アルゴリズムによる生成(1次マルコフ連鎖)</h2>
-            <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-              <p className="mb-3 text-xs text-zinc-500">
-                曲中のピッチクラス遷移確率(上の「予測可能性」と同じ行列)から、次の音を確率的にサンプリングして新しい音列を生成します。
-                元の曲を作曲したアルゴリズムの再現ではなく、統計的性質を近似する単純な1次マルコフモデルによる生成です。
-              </p>
+          <div className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
+            {TABS.map((tab) => (
               <button
-                onClick={handleGenerateMarkov}
-                className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background"
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={
+                  activeTab === tab.id
+                    ? "border-b-2 border-[#2a78d6] px-4 py-2 text-sm font-semibold text-[#2a78d6] dark:border-[#3987e5] dark:text-[#3987e5]"
+                    : "border-b-2 border-transparent px-4 py-2 text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                }
               >
-                生成する
+                {tab.label}
               </button>
-
-              {markovSequence && (
-                <div className="mt-3">
-                  <p className="break-words font-mono text-sm">
-                    {markovSequence.map((pc) => PITCH_CLASS_NAMES[pc]).join(" → ")}
-                  </p>
-                  {markovMetrics && aestheticMetrics && (
-                    <table className="mt-3 text-xs">
-                      <thead>
-                        <tr className="text-left text-zinc-500">
-                          <th className="pb-1 pr-4 font-normal"></th>
-                          <th className="pb-1 pr-4 font-normal">元の曲</th>
-                          <th className="pb-1 font-normal">生成列</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="pr-4 text-zinc-500">協和度(平均Γ)</td>
-                          <td className="pr-4">{aestheticMetrics.consonance.averageGradus.toFixed(2)}</td>
-                          <td>{markovMetrics.consonance.averageGradus.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                          <td className="pr-4 text-zinc-500">予測可能性(bit)</td>
-                          <td className="pr-4">{aestheticMetrics.predictability.conditionalEntropyBits.toFixed(2)}</td>
-                          <td>{markovMetrics.predictability.conditionalEntropyBits.toFixed(2)}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              )}
-            </div>
+            ))}
           </div>
 
-          <div>
-            <h2 className="mb-2 text-lg font-semibold">AIによる解説</h2>
-            <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-              <button
-                onClick={handleGenerateSummary}
-                disabled={summaryStatus === "loading"}
-                className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background disabled:opacity-50"
-              >
-                {summaryStatus === "loading" ? "生成中…" : "AIによる解説を生成"}
-              </button>
-
-              {summaryStatus === "error" && summaryError && (
-                <p className="mt-3 text-sm text-red-500">{summaryError}</p>
-              )}
-
-              {summaryStatus === "done" && summaryText && (
-                <div className="mt-3">
-                  <p className="whitespace-pre-wrap text-sm">{summaryText}</p>
-                  <p className="mt-2 text-xs text-zinc-400">
-                    Claude(Anthropic)による生成。上記の数値解析結果のみを根拠にしています。
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
+          {activeTab === "overview" && (
+            <OverviewTab data={{ label, events, maxTime, histogram, histogramMax }} />
+          )}
+          {activeTab === "tonality" && <TonalityTab data={{ keyTimeline, fourierTimeline }} />}
+          {activeTab === "harmony" && (
+            <HarmonyTab
+              data={{
+                tonnetzTrajectory,
+                aestheticMetrics,
+                markovSequence,
+                markovMetrics,
+                onGenerateMarkov: handleGenerateMarkov,
+              }}
+            />
+          )}
+          {activeTab === "timbre" && (
+            <TimbreTab data={{ instrumentTags, instrumentTagsStatus, instrumentTagsError }} />
+          )}
+          {activeTab === "ai" && (
+            <AIExplanationTab
+              data={{ summaryStatus, summaryText, summaryError, onGenerateSummary: handleGenerateSummary }}
+            />
+          )}
         </div>
       )}
     </main>
