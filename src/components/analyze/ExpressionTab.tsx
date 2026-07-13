@@ -1,3 +1,5 @@
+"use client";
+
 import MetricCard from "@/components/analyze/MetricCard";
 import SectionHeader from "@/components/analyze/SectionHeader";
 import MoodQuadrantChart from "@/components/MoodQuadrantChart";
@@ -6,6 +8,8 @@ import type { TempoEstimate, RhythmicEntropyEstimate } from "@/lib/theory/rhythm
 import type { DynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
 import type { ArcSection } from "@/lib/theory/songArc";
 import type { MeterAnalysisResult } from "@/lib/theory/meterAnalysis";
+import { useDict, useLocale } from "@/lib/i18n/LocaleProvider";
+import { expressionTabDict } from "@/lib/i18n/dict/expressionTab";
 
 export interface ExpressionTabData {
   tempo: TempoEstimate | null;
@@ -33,30 +37,35 @@ function formatTime(seconds: number): string {
  */
 export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
   const { tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter, percussionOnsetCount } = data;
+  const { locale } = useLocale();
+  const t = useDict(expressionTabDict);
+  const dynamicsTrendLabel = { crescendo: t.dynamics.crescendo, diminuendo: t.dynamics.diminuendo, stable: t.dynamics.stable };
 
   return (
     <div className="flex flex-col gap-10">
       {tempo && rhythmEntropy && (
         <div>
-          <SectionHeader
-            label="EXPRESSION — RHYTHM"
-            heading="リズムの推定"
-            description="オンセット密度の自己相関からテンポを、音価分布のシャノンエントロピーからリズムの複雑さを推定します。"
-          />
+          <SectionHeader {...t.rhythm} />
           <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
             <MetricCard
-              title="テンポ"
-              theory="オンセット密度の自己相関によるビート周期推定"
+              title={t.rhythm.tempo.title}
+              theory={tempo.source === "notated" ? t.rhythm.tempo.theoryNotated : t.rhythm.tempo.theory}
               formula="argmax_τ r(τ)、bpm = 60 / τ"
-              value={`約 ${tempo.bpm} BPM`}
-              note={tempo.confidence === "low" ? "確信度低(規則的な拍を検出できず)" : "規則的な拍を検出"}
+              value={t.rhythm.tempo.value(tempo.bpm)}
+              note={
+                tempo.source === "notated"
+                  ? t.rhythm.tempo.noteNotated
+                  : tempo.confidence === "low"
+                    ? t.rhythm.tempo.noteLow
+                    : t.rhythm.tempo.noteOk
+              }
             />
             <MetricCard
-              title="リズムの複雑さ"
-              theory="音価分布のシャノンエントロピー"
+              title={t.rhythm.complexity.title}
+              theory={t.rhythm.complexity.theory}
               formula="H = -Σ p(bucket) log₂ p(bucket)"
-              value={`${rhythmEntropy.entropyBits.toFixed(2)} bit (最大 ${rhythmEntropy.maxEntropyBits.toFixed(2)} bit)`}
-              note="値が大きいほど音価のバリエーションが豊富"
+              value={t.rhythm.complexity.value(rhythmEntropy.entropyBits.toFixed(2), rhythmEntropy.maxEntropyBits.toFixed(2))}
+              note={t.rhythm.complexity.note}
             />
           </div>
         </div>
@@ -64,41 +73,37 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
 
       {meter && (
         <div>
-          <SectionHeader
-            label="EXPRESSION — METER"
-            heading="拍子・シンコペーションの推定"
-            description="記譜された拍子から拍節の強弱グリッドを作り、強拍を避けて弱拍・裏拍に音を置く度合いを簡易的に推定しています(Longuet-Higgins & Lee, 1984のシンコペーション概念を単純化したもので、GTTMのような完全な拍節理論ではありません)。楽譜からのインポートでのみ利用できます。"
-          />
+          <SectionHeader {...t.meter} />
           <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
             <MetricCard
-              title="拍子"
-              theory="記譜された拍子記号(<attributes><time> / MasterBar)"
+              title={t.meter.meterCard.title}
+              theory={t.meter.meterCard.theory}
               formula="numerator / denominator"
               value={meter.meterSummary.map((p) => `${formatTime(p.time)}〜 ${p.numerator}/${p.denominator}`).join(", ")}
-              note="拍子が変わる箇所ごとに区切って表示"
+              note={t.meter.meterCard.note}
             />
             <MetricCard
-              title="シンコペーション指数"
-              theory="Longuet-Higgins & Lee (1984) のシンコペーション概念を単純化"
+              title={t.meter.syncopation.title}
+              theory={t.meter.syncopation.theory}
               formula="Σ max(0, strongerWeight-ownWeight) / (pairCount×weightRange)"
-              value={`${meter.syncopation.normalizedScore.toFixed(2)}(0〜1)`}
+              value={t.meter.syncopation.value(meter.syncopation.normalizedScore.toFixed(2))}
               note={
                 percussionOnsetCount > 0
-                  ? `値が大きいほど、強拍を避けて弱拍・裏拍に音を置く傾向。ドラムパートのオンセット(${percussionOnsetCount}個)も拍節解析に含めています。`
-                  : "値が大きいほど、強拍を避けて弱拍・裏拍に音を置く傾向"
+                  ? t.meter.syncopation.noteWithPercussion(percussionOnsetCount)
+                  : t.meter.syncopation.noteBase
               }
             />
             {meter.harmonicRhythmAlignment && (
               <MetricCard
-                title="和声変化と拍節の整合"
+                title={t.meter.alignment.title}
                 theory={
                   meter.harmonicRhythmAlignment.source === "notatedChords"
-                    ? "記譜されたコードネーム基準"
-                    : "検出された和音基準(Tonnetz軌跡、1秒窓の粗い推定)"
+                    ? t.meter.alignment.theoryNotated
+                    : t.meter.alignment.theoryDetected
                 }
                 formula="strongBeatCount / totalChordChanges"
-                value={`${(meter.harmonicRhythmAlignment.strongBeatFraction * 100).toFixed(0)}%`}
-                note="和音が変わる瞬間のうち、強拍/準強拍で起きている割合"
+                value={t.meter.alignment.value((meter.harmonicRhythmAlignment.strongBeatFraction * 100).toFixed(0))}
+                note={t.meter.alignment.note}
               />
             )}
           </div>
@@ -107,45 +112,27 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
 
       {dynamics && (
         <div>
-          <SectionHeader
-            label="EXPRESSION — DYNAMICS"
-            heading="強弱の推定"
-            description="音符振幅(Basic Pitchのamplitude)の区間平均から、曲全体の強弱とその傾向を推定します。"
-          />
+          <SectionHeader label={t.dynamics.label} heading={t.dynamics.heading} description={t.dynamics.description} />
           <MetricCard
-            title="強弱(ダイナミクス)"
-            theory="音符振幅の区間平均"
+            title={t.dynamics.title}
+            theory={t.dynamics.theory}
             formula="range = max(区間平均) - min(区間平均)"
-            value={`平均 ${dynamics.averageLoudness.toFixed(2)} / レンジ ${dynamics.dynamicRange.toFixed(2)}`}
-            note={
-              dynamics.trend === "crescendo"
-                ? "だんだん強くなる傾向"
-                : dynamics.trend === "diminuendo"
-                  ? "だんだん弱くなる傾向"
-                  : "おおむね一定"
-            }
+            value={t.dynamics.value(dynamics.averageLoudness.toFixed(2), dynamics.dynamicRange.toFixed(2))}
+            note={dynamicsTrendLabel[dynamics.trend]}
           />
         </div>
       )}
 
       {valence !== null && arousal !== null && (
         <div>
-          <SectionHeader
-            label="EXPRESSION — MOOD"
-            heading="感情・印象の推定(Russellの感情円環モデル)"
-            description="キー(長調/短調)・協和度・テンポ・強弱・リズムの複雑さから合成した仮説的な推定です。検証済みの感情認識モデルではありません。"
-          />
+          <SectionHeader {...t.mood} />
           <MoodQuadrantChart valence={valence} arousal={arousal} />
         </div>
       )}
 
       {arc.length > 0 && (
         <div>
-          <SectionHeader
-            label="EXPRESSION — ARC"
-            heading="曲の推移"
-            description="固定の等分割ではなく、メロディーのピッチクラス分布の変化(novelty検出)から区間の切れ目を検出しています。明確な変化点が無い曲は1区間のままになります。各区間で協和度・強弱・感情推定を再計算し、上の4つの測定値が曲の中でどう動いていくかを見るためのものです。"
-          />
+          <SectionHeader {...t.arc} />
           <div className="overflow-x-auto border-y border-zinc-100 dark:border-zinc-900">
             <table className="w-full text-xs">
               <thead>
@@ -160,7 +147,7 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
               </thead>
               <tbody>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                  <td className="p-3 text-zinc-500">協和度(平均Γ)</td>
+                  <td className="p-3 text-zinc-500">{t.arc.consonanceRow}</td>
                   {arc.map((s) => (
                     <td key={s.startSec} className="p-3">
                       {s.consonance.averageGradus.toFixed(2)}
@@ -168,7 +155,7 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
                   ))}
                 </tr>
                 <tr className="border-b border-zinc-200 dark:border-zinc-800">
-                  <td className="p-3 text-zinc-500">強弱(平均音量)</td>
+                  <td className="p-3 text-zinc-500">{t.arc.dynamicsRow}</td>
                   {arc.map((s) => (
                     <td key={s.startSec} className="p-3">
                       {s.dynamics.averageLoudness.toFixed(2)}
@@ -176,10 +163,10 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
                   ))}
                 </tr>
                 <tr>
-                  <td className="p-3 text-zinc-500">感情推定</td>
+                  <td className="p-3 text-zinc-500">{t.arc.moodRow}</td>
                   {arc.map((s) => (
                     <td key={s.startSec} className="p-3">
-                      {describeMoodQuadrant(s.valence, s.arousal)}
+                      {describeMoodQuadrant(s.valence, s.arousal, locale)}
                     </td>
                   ))}
                 </tr>

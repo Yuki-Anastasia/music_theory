@@ -1,6 +1,8 @@
 "use client";
 
 import SectionHeader from "@/components/analyze/SectionHeader";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { uploadersDict } from "@/lib/i18n/dict/uploaders";
 
 export interface PartSelectorProps {
   /** Every part/instrument name found across the loaded file(s), in document order. */
@@ -20,15 +22,12 @@ export interface PartSelectorProps {
  * toggle.
  */
 export default function PartSelector({ partNames, selectedParts, onToggle }: PartSelectorProps) {
+  const t = useDict(uploadersDict).partSelector;
   if (partNames.length < 2) return null;
 
   return (
     <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-      <SectionHeader
-        label="PART SELECTION"
-        heading="解析するパートを選択"
-        description="この楽譜には複数の楽器パートが含まれています。チェックを外すと、そのパートを解析対象から除外できます(既定では全パートを結合して解析します)。ピアノロール・和声・対位法・AIによる解説など、以降のすべての解析はここで選択したパートのみを対象に再計算されます。"
-      />
+      <SectionHeader label={t.label} heading={t.heading} description={t.description} />
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         {partNames.map((name) => (
           <label key={name} className="flex items-center gap-2 text-sm">
@@ -42,9 +41,7 @@ export default function PartSelector({ partNames, selectedParts, onToggle }: Par
           </label>
         ))}
       </div>
-      {selectedParts.size === 0 && (
-        <p className="mt-2 text-xs text-red-500">少なくとも1つのパートを選択してください。</p>
-      )}
+      {selectedParts.size === 0 && <p className="mt-2 text-xs text-red-500">{t.noneSelected}</p>}
     </div>
   );
 }

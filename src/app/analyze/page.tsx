@@ -13,7 +13,8 @@ import OverviewTab from "@/components/analyze/OverviewTab";
 import TonalityTab from "@/components/analyze/TonalityTab";
 import HarmonyTab from "@/components/analyze/HarmonyTab";
 import ExpressionTab from "@/components/analyze/ExpressionTab";
-import AIExplanationTab, { SummaryStatus } from "@/components/analyze/AIExplanationTab";
+import AIExplanationTab, { AIExplanationMessage, FollowUpStatus, SummaryStatus } from "@/components/analyze/AIExplanationTab";
+import { aiExplanationTabDict } from "@/lib/i18n/dict/aiExplanationTab";
 import PartSelector from "@/components/analyze/PartSelector";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
 import { notesToNormalizedEvents, pitchClassHistogram, NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
@@ -27,13 +28,15 @@ import {
   consonanceOfHistogram,
   conditionalPitchEntropy,
 } from "@/lib/theory/aestheticMetrics";
-import { estimateTempo, rhythmicEntropy } from "@/lib/theory/rhythmAnalysis";
+import { estimateTempo, rhythmicEntropy, TempoEstimate } from "@/lib/theory/rhythmAnalysis";
 import { dynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
 import { estimateValence, estimateArousal } from "@/lib/theory/emotionEstimate";
 import { separateVoices } from "@/lib/theory/voiceSeparation";
 import { estimateSongArc } from "@/lib/theory/songArc";
 import { analyzeMeter } from "@/lib/theory/meterAnalysis";
 import { analyzeCounterpoint } from "@/lib/theory/counterpoint";
+import { useDict, useLocale } from "@/lib/i18n/LocaleProvider";
+import { analyzeShellDict } from "@/lib/i18n/dict/analyzeShell";
 
 type Status = "idle" | "analyzing" | "done" | "error";
 type TabId = "overview" | "tonality" | "harmony" | "expression" | "ai";
@@ -64,13 +67,7 @@ function formatNotatedKeySegments(timeline: NotatedKeyPoint[], durationSec: numb
   return segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`).join(", ");
 }
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "overview", label: "概要" },
-  { id: "tonality", label: "調性" },
-  { id: "harmony", label: "和声" },
-  { id: "expression", label: "リズム・表現" },
-  { id: "ai", label: "AI解説" },
-];
+const TAB_ORDER: TabId[] = ["overview", "tonality", "harmony", "expression", "ai"];
 
 // One contextual decoration accent next to the tab bar, varying with the
 // active tab's domain — a single motif, not one per section.
@@ -81,6 +78,9 @@ const TAB_ACCENTS: Partial<Record<TabId, typeof StaffFragment>> = {
 };
 
 export default function AnalyzeSongPage() {
+  const { locale } = useLocale();
+  const t = useDict(analyzeShellDict);
+  const aiT = useDict(aiExplanationTabDict);
   const [status, setStatus] = useState<Status>("idle");
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [label, setLabel] = useState<string | null>(null);
@@ -93,8 +93,10 @@ export default function AnalyzeSongPage() {
   const [parsedEvents, setParsedEvents] = useState<NormalizedNoteEvent[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("idle");
-  const [summaryText, setSummaryText] = useState<string | null>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [aiMessages, setAiMessages] = useState<AIExplanationMessage[]>([]);
+  const [followUpStatus, setFollowUpStatus] = useState<FollowUpStatus>("idle");
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [markovSequence, setMarkovSequence] = useState<number[] | null>(null);
   const [notatedKeyTimeline, setNotatedKeyTimeline] = useState<NotatedKeyPoint[]>([]);
   const [notatedChordTimeline, setNotatedChordTimeline] = useState<NotatedChordPoint[]>([]);
@@ -103,6 +105,11 @@ export default function AnalyzeSongPage() {
   const [scoreWarnings, setScoreWarnings] = useState<ScoreConsistencyWarning[]>([]);
   // Onset times of unpitched percussion notes — never part of `events`/PartSelector (no pitch, not a selectable "part"), but fed into the meter/syncopation analysis as a beat indicator.
   const [percussionOnsets, setPercussionOnsets] = useState<number[]>([]);
+  // The tempo as actually notated in the score (e.g. MusicXML <sound tempo>,
+  // or Guitar Pro's always-present tempo field). null for audio-transcribed
+  // input, or a score that never specifies one — in both cases tempo falls
+  // back to autocorrelation estimation below.
+  const [notatedTempoBpm, setNotatedTempoBpm] = useState<number | null>(null);
   // Which of scorePartNames are currently included in the analysis; empty/unused for audio-transcribed input (no partLabel there).
   const [selectedParts, setSelectedParts] = useState<Set<string>>(new Set());
 
@@ -119,6 +126,7 @@ export default function AnalyzeSongPage() {
     setScoreWarnings([]);
     setSelectedParts(new Set());
     setPercussionOnsets([]);
+    setNotatedTempoBpm(null);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
@@ -145,6 +153,7 @@ export default function AnalyzeSongPage() {
     setScoreWarnings(warnings);
     setSelectedParts(new Set(analysis.partNames)); // all parts included by default
     setPercussionOnsets(analysis.percussionOnsets);
+    setNotatedTempoBpm(analysis.notatedTempoBpm);
   };
 
   const togglePart = (name: string) => {
@@ -162,6 +171,23 @@ export default function AnalyzeSongPage() {
     setMarkovSequence(generateMarkovSequence(matrix, events[0].pitchClass, MARKOV_SEQUENCE_LENGTH));
   };
 
+  // Shared by both the initial generation and every follow-up question —
+  // the underlying analysis facts never change within a session, only the
+  // conversation (history/question) layered on top of them does.
+  const analysisRequestBody = () => ({
+    label,
+    durationSec: maxTime,
+    keyTimeline,
+    tonnetzTrajectory,
+    metrics: aestheticMetrics,
+    mood,
+    arc,
+    meter: meterAnalysis,
+    counterpoint: counterpointAnalysis,
+    includedParts,
+    locale,
+  });
+
   const handleGenerateSummary = async () => {
     setSummaryStatus("loading");
     setSummaryError(null);
@@ -169,26 +195,36 @@ export default function AnalyzeSongPage() {
       const res = await fetch("/api/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          label,
-          durationSec: maxTime,
-          keyTimeline,
-          tonnetzTrajectory,
-          metrics: aestheticMetrics,
-          mood,
-          arc,
-          meter: meterAnalysis,
-          counterpoint: counterpointAnalysis,
-          includedParts,
-        }),
+        body: JSON.stringify(analysisRequestBody()),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "AI解説の生成に失敗しました");
-      setSummaryText(data.summary);
+      if (!res.ok) throw new Error(data.error ?? t.summaryFailedFallback);
+      setAiMessages([{ role: "assistant", text: data.summary }]);
       setSummaryStatus("done");
     } catch (err) {
       setSummaryError(err instanceof Error ? err.message : String(err));
       setSummaryStatus("error");
+    }
+  };
+
+  const handleAskFollowUp = async (question: string) => {
+    const historySnapshot = aiMessages.map((m) => ({ role: m.role, content: m.text }));
+    setAiMessages((prev) => [...prev, { role: "user", text: question }]);
+    setFollowUpStatus("loading");
+    setFollowUpError(null);
+    try {
+      const res = await fetch("/api/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...analysisRequestBody(), history: historySnapshot, question }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? aiT.followUpErrorFallback);
+      setAiMessages((prev) => [...prev, { role: "assistant", text: data.summary }]);
+      setFollowUpStatus("idle");
+    } catch (err) {
+      setFollowUpError(err instanceof Error ? err.message : String(err));
+      setFollowUpStatus("error");
     }
   };
 
@@ -223,7 +259,15 @@ export default function AnalyzeSongPage() {
     : [];
   const tonnetzTrajectory = harmonyEvents.length > 0 ? estimateTonnetzTrajectory(harmonyEvents) : [];
   const aestheticMetrics = voices ? analyzeAesthetics(voices.melody, histogram, tonnetzTrajectory) : null;
-  const tempo = events.length > 0 ? estimateTempo(events) : null;
+  // A notated tempo (score import) is ground truth and always wins over
+  // re-deriving it from onset autocorrelation, which can lock onto a
+  // tempo/2 or tempo/3 subharmonic for a perfectly periodic signal.
+  const tempo: TempoEstimate | null =
+    notatedTempoBpm !== null
+      ? { bpm: notatedTempoBpm, confidence: "high", source: "notated" }
+      : events.length > 0
+        ? estimateTempo(events)
+        : null;
   const rhythmEntropy = events.length > 0 ? rhythmicEntropy(events) : null;
   const dynamics = events.length > 0 ? dynamicsSummary(events) : null;
   const valence =
@@ -306,18 +350,14 @@ export default function AnalyzeSongPage() {
         <div className="relative flex max-w-xl flex-col gap-6">
           <div>
             <p className="text-xs font-medium tracking-[0.15em] text-navy">INPUT</p>
-            <h1 className="mt-1 text-2xl font-semibold">曲を解析する</h1>
-            <p className="mt-2 text-sm text-zinc-500">
-              曲ファイルをアップロードするか、マイクで録音してください。Basic
-              Pitch(ブラウザ内、和音・複数声部対応)で解析し、音符のタイムラインを表示します。
-              1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。
-            </p>
+            <h1 className="mt-1 text-2xl font-semibold">{t.intro.heading}</h1>
+            <p className="mt-2 text-sm text-zinc-500">{t.intro.description}</p>
           </div>
 
           <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
 
           <div className="border-t border-zinc-200 pt-4 text-xs text-zinc-400 dark:border-zinc-800">
-            または、楽譜データから精密に解析
+            {t.orScoreDivider}
           </div>
 
           <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
@@ -327,10 +367,10 @@ export default function AnalyzeSongPage() {
       {status === "analyzing" && (
         <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="mb-2 flex justify-between text-sm text-zinc-500">
-            <span>解析中: {label}</span>
+            <span>{t.analyzing(label)}</span>
             <span>
-              {(elapsedMs / 1000).toFixed(1)}s経過
-              {elapsedMs > SOFT_TARGET_MS && "(目安の30秒を超えています)"}
+              {t.elapsed((elapsedMs / 1000).toFixed(1))}
+              {elapsedMs > SOFT_TARGET_MS && t.overTarget}
             </span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
@@ -343,25 +383,20 @@ export default function AnalyzeSongPage() {
       )}
 
       {status === "error" && errorMessage && (
-        <p className="rounded-lg border border-red-300 p-4 text-sm text-red-500">解析に失敗しました: {errorMessage}</p>
+        <p className="rounded-lg border border-red-300 p-4 text-sm text-red-500">{t.analysisFailed(errorMessage)}</p>
       )}
 
       {status === "done" && (
         <div className="flex flex-col gap-6">
           {scoreWarnings.length > 0 && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950">
-              <p className="mb-2 font-semibold text-amber-800 dark:text-amber-300">
-                複数ファイルの整合性に関する注意
-              </p>
+              <p className="mb-2 font-semibold text-amber-800 dark:text-amber-300">{t.warnings.heading}</p>
               <ul className="list-disc space-y-1 pl-5 text-xs text-amber-800 dark:text-amber-300">
                 {scoreWarnings.map((w, i) => (
                   <li key={i}>{w.message}</li>
                 ))}
               </ul>
-              <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-                これは自動判定の目安であり、正当な理由(演奏に伴う揺れ、移調楽器の記譜など)で差が出ている場合もあります。
-                解析結果はそのまま表示していますが、パート間の比較(対位法チェックなど)は同じタイムラインである前提に基づく点にご注意ください。
-              </p>
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">{t.warnings.note}</p>
             </div>
           )}
 
@@ -369,17 +404,17 @@ export default function AnalyzeSongPage() {
 
           <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800">
             <div className="flex gap-1">
-              {TABS.map((tab) => (
+              {TAB_ORDER.map((tabId) => (
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  key={tabId}
+                  onClick={() => setActiveTab(tabId)}
                   className={
-                    activeTab === tab.id
+                    activeTab === tabId
                       ? "border-b-2 border-navy px-4 py-2 text-sm text-navy"
                       : "border-b-2 border-transparent px-4 py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
                   }
                 >
-                  {tab.label}
+                  {t.tabs[tabId]}
                 </button>
               ))}
             </div>
@@ -423,7 +458,15 @@ export default function AnalyzeSongPage() {
           )}
           {activeTab === "ai" && (
             <AIExplanationTab
-              data={{ summaryStatus, summaryText, summaryError, onGenerateSummary: handleGenerateSummary }}
+              data={{
+                summaryStatus,
+                summaryError,
+                onGenerateSummary: handleGenerateSummary,
+                messages: aiMessages,
+                followUpStatus,
+                followUpError,
+                onAskFollowUp: handleAskFollowUp,
+              }}
             />
           )}
         </div>

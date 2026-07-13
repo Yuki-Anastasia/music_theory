@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 interface WaveformDisplayProps {
   analyserRef: React.RefObject<AnalyserNode | null>;
@@ -16,6 +18,7 @@ const HEIGHT = 160;
  * the trace — the most literal answer to "is the mic picking anything up".
  */
 export default function WaveformDisplay({ analyserRef, isActive }: WaveformDisplayProps) {
+  const t = useDict(chartsDict).waveform;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const dataRef = useRef<Float32Array<ArrayBuffer> | null>(null);
@@ -75,7 +78,7 @@ export default function WaveformDisplay({ analyserRef, isActive }: WaveformDispl
 
   return (
     <div className="border-y border-zinc-100 py-2 dark:border-zinc-900">
-      <div className="mb-1 text-xs text-zinc-500">波形(オシロスコープ)</div>
+      <div className="mb-1 text-xs text-zinc-500">{t.label}</div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} className="w-full rounded" />
     </div>
   );

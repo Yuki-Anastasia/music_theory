@@ -1,4 +1,8 @@
+"use client";
+
 import { describeMoodQuadrant } from "@/lib/theory/emotionEstimate";
+import { useDict, useLocale } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 const SIZE = 260;
 const PADDING = 32;
@@ -18,8 +22,10 @@ function toScreen(valence: number, arousal: number): { x: number; y: number } {
  * validated emotion-recognition result.
  */
 export default function MoodQuadrantChart({ valence, arousal }: { valence: number; arousal: number }) {
+  const { locale } = useLocale();
+  const t = useDict(chartsDict).moodQuadrant;
   const point = toScreen(valence, arousal);
-  const label = describeMoodQuadrant(valence, arousal);
+  const label = describeMoodQuadrant(valence, arousal, locale);
 
   return (
     <div className="py-2">
@@ -56,16 +62,16 @@ export default function MoodQuadrantChart({ valence, arousal }: { valence: numbe
 
         {/* axis labels (map ink) */}
         <text x={SIZE - PADDING} y={SIZE / 2 - 6} textAnchor="end" className="fill-zinc-400 text-[10px] dark:fill-zinc-500">
-          快
+          {t.pleasant}
         </text>
         <text x={PADDING} y={SIZE / 2 - 6} textAnchor="start" className="fill-zinc-400 text-[10px] dark:fill-zinc-500">
-          不快
+          {t.unpleasant}
         </text>
         <text x={SIZE / 2 + 6} y={PADDING + 10} textAnchor="start" className="fill-zinc-400 text-[10px] dark:fill-zinc-500">
-          覚醒
+          {t.aroused}
         </text>
         <text x={SIZE / 2 + 6} y={SIZE - PADDING} textAnchor="start" className="fill-zinc-400 text-[10px] dark:fill-zinc-500">
-          沈静
+          {t.calm}
         </text>
 
         {/* data: the song's estimated position */}
@@ -73,7 +79,7 @@ export default function MoodQuadrantChart({ valence, arousal }: { valence: numbe
       </svg>
       <p className="mt-2 text-center text-sm font-medium">{label}</p>
       <p className="mt-1 text-center text-xs text-zinc-500">
-        valence {valence.toFixed(2)} / arousal {arousal.toFixed(2)}(Russellの感情円環モデルに基づく仮説的な推定)
+        valence {valence.toFixed(2)} / arousal {arousal.toFixed(2)}({t.caption})
       </p>
     </div>
   );

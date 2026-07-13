@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
 import { midiToNoteName } from "@/lib/audio/pitch";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 interface PianoRollViewerProps {
   events: NormalizedNoteEvent[];
@@ -40,6 +42,7 @@ function confidenceToColor(confidence: number, isDark: boolean): string {
  * formula for magnitude encoding.
  */
 export default function PianoRollViewer({ events }: PianoRollViewerProps) {
+  const t = useDict(chartsDict).pianoRoll;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDark, setIsDark] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -131,7 +134,7 @@ export default function PianoRollViewer({ events }: PianoRollViewerProps) {
   }, [events, isDark]);
 
   if (events.length === 0) {
-    return <p className="text-sm text-zinc-400">検出された音符がありません。</p>;
+    return <p className="text-sm text-zinc-400">{t.empty}</p>;
   }
 
   return (

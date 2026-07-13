@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import type { TonnetzTimelinePoint } from "@/lib/theory/tonnetzTimeline";
 import { generateTonnetzGrid, trianglesForRhombus, triangleCentroid, chordLabel } from "@/lib/theory/tonnetz";
 import { PITCH_CLASS_NAMES } from "@/lib/audio/pitch";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 interface TonnetzViewProps {
   trajectory: TonnetzTimelinePoint[];
@@ -30,6 +32,7 @@ function formatTime(seconds: number): string {
  * tint) stays muted so it reads as geometry, not as competing series.
  */
 export default function TonnetzView({ trajectory }: TonnetzViewProps) {
+  const t = useDict(chartsDict).tonnetzView;
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const nodes = useMemo(() => generateTonnetzGrid(U_RANGE, V_RANGE), []);
@@ -58,7 +61,7 @@ export default function TonnetzView({ trajectory }: TonnetzViewProps) {
   const height = bounds.maxY - bounds.minY;
 
   if (trajectory.length === 0) {
-    return <p className="text-sm text-zinc-400">和音を推定できるだけの音符がありません。</p>;
+    return <p className="text-sm text-zinc-400">{t.empty}</p>;
   }
 
   const pathPoints = trajectory.map((point, i) => {
@@ -92,11 +95,11 @@ export default function TonnetzView({ trajectory }: TonnetzViewProps) {
   return (
     <div className="py-2">
       <div className="mb-1 flex justify-between text-xs text-zinc-500">
-        <span>Tonnetz軌跡(薄い点=確信度低、色が濃いほど後の時刻)</span>
+        <span>{t.label}</span>
         {hovered && (
           <span className="font-mono">
             {formatTime(hovered.point.time)} — {chordLabel(hovered.point.chord)}
-            {hovered.point.chord.confidence === "low" && "(確信度低)"}
+            {hovered.point.chord.confidence === "low" && t.lowConfidence}
           </span>
         )}
       </div>
@@ -154,8 +157,8 @@ export default function TonnetzView({ trajectory }: TonnetzViewProps) {
           textAnchor="middle"
           className="fill-zinc-600 font-semibold dark:fill-zinc-300"
         >
-          開始 {chordLabel(pathPoints[0].point.chord)}
-          {pathPoints[0].point.chord.confidence === "low" && "?(確信度低)"}
+          {t.start} {chordLabel(pathPoints[0].point.chord)}
+          {pathPoints[0].point.chord.confidence === "low" && t.lowConfidenceMark}
         </text>
         <text
           x={pathPoints[pathPoints.length - 1].x}
@@ -164,8 +167,8 @@ export default function TonnetzView({ trajectory }: TonnetzViewProps) {
           textAnchor="middle"
           className="fill-zinc-600 font-semibold dark:fill-zinc-300"
         >
-          終了 {chordLabel(pathPoints[pathPoints.length - 1].point.chord)}
-          {pathPoints[pathPoints.length - 1].point.chord.confidence === "low" && "?(確信度低)"}
+          {t.end} {chordLabel(pathPoints[pathPoints.length - 1].point.chord)}
+          {pathPoints[pathPoints.length - 1].point.chord.confidence === "low" && t.lowConfidenceMark}
         </text>
       </svg>
     </div>

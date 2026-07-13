@@ -1,3 +1,5 @@
+"use client";
+
 import TonnetzView from "@/components/TonnetzView";
 import MetricCard from "@/components/analyze/MetricCard";
 import SectionHeader from "@/components/analyze/SectionHeader";
@@ -5,6 +7,8 @@ import type { TonnetzTimelinePoint } from "@/lib/theory/tonnetzTimeline";
 import type { AestheticMetrics, ConsonanceEstimate, PredictabilityEstimate } from "@/lib/theory/aestheticMetrics";
 import type { CounterpointAnalysis, MotionType } from "@/lib/theory/counterpoint";
 import { PITCH_CLASS_NAMES } from "@/lib/audio/pitch";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { harmonyTabDict } from "@/lib/i18n/dict/harmonyTab";
 
 export interface HarmonyTabData {
   tonnetzTrajectory: TonnetzTimelinePoint[];
@@ -18,8 +22,6 @@ export interface HarmonyTabData {
   counterpoint: CounterpointAnalysis | null;
 }
 
-const MOTION_LABEL: Record<MotionType, string> = { contrary: "反行", oblique: "斜行", similar: "並行", parallel: "平行" };
-
 export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
   const {
     tonnetzTrajectory,
@@ -30,58 +32,59 @@ export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
     notatedChordText,
     counterpoint,
   } = data;
+  const t = useDict(harmonyTabDict);
+  const motionTypes = Object.keys(t.counterpoint.motion) as MotionType[];
 
   return (
     <div className="flex flex-col gap-10">
       <div>
-        <SectionHeader
-          label="HARMONIC GEOMETRY"
-          heading="Tonnetz軌跡"
-          description="Eulerの音格子(Tonnetz)上で、検出された和音の進行を軌跡として描きます。隣接する三角形は共通音を1〜2音共有する、声部移動の小さい和音同士です。"
-        />
+        <SectionHeader {...t.tonnetz} />
         <TonnetzView trajectory={tonnetzTrajectory} />
         {notatedChordText && (
-          <p className="mt-2 break-words text-xs text-zinc-500">
-            記譜されたコード進行(楽譜のコードネーム表記): {notatedChordText}
-          </p>
+          <p className="mt-2 break-words text-xs text-zinc-500">{t.notatedChord(notatedChordText)}</p>
         )}
       </div>
 
       {aestheticMetrics && (
         <div>
-          <SectionHeader
-            label="STRUCTURAL METRICS"
-            heading="美しさと相関しうる数理的特徴"
-            description="これらは「美しさの証明」ではありません。音楽理論・情報理論上の名前のついた指標との、数学的な相関を示す仮説的な視点です。"
-          />
+          <SectionHeader label={t.metrics.label} heading={t.metrics.heading} description={t.metrics.description} />
           <div className="grid grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
             <MetricCard
-              title="協和度"
-              theory="オイラーの快さの尺度 (Gradus Suavitatis, 1739)"
+              title={t.metrics.consonance.title}
+              theory={t.metrics.consonance.theory}
               formula="Γ(n) = 1 + Σ aᵢ(pᵢ - 1)"
-              value={`平均 Γ = ${aestheticMetrics.consonance.averageGradus.toFixed(2)}`}
-              note="値が小さいほど協和的(完全五度Γ=4、短二度Γ=11)"
+              value={t.metrics.consonance.value(aestheticMetrics.consonance.averageGradus.toFixed(2))}
+              note={t.metrics.consonance.note}
             />
             <MetricCard
-              title="和声的テンション"
-              theory="声部進行の最小移動距離 (Neo-Riemannian理論)"
+              title={t.metrics.tension.title}
+              theory={t.metrics.tension.theory}
               formula="min Σᵢ dist(aᵢ, b_perm(i))"
-              value={`平均 ${aestheticMetrics.harmonicTension.averageVoiceLeadingDistance.toFixed(2)}半音 / 最大 ${aestheticMetrics.harmonicTension.maxVoiceLeadingDistance.toFixed(2)}半音`}
-              note="値が大きいほど、遠い和音への跳躍"
+              value={t.metrics.tension.value(
+                aestheticMetrics.harmonicTension.averageVoiceLeadingDistance.toFixed(2),
+                aestheticMetrics.harmonicTension.maxVoiceLeadingDistance.toFixed(2)
+              )}
+              note={t.metrics.tension.note}
             />
             <MetricCard
-              title="予測可能性"
-              theory="シャノンの条件付きエントロピー (情報理論, 1948)"
+              title={t.metrics.predictability.title}
+              theory={t.metrics.predictability.theory}
               formula="H(Xₙ₊₁|Xₙ) = -Σ p(a,b)log₂p(b|a)"
-              value={`${aestheticMetrics.predictability.conditionalEntropyBits.toFixed(2)} bit (最大 ${aestheticMetrics.predictability.maxEntropyBits.toFixed(2)} bit)`}
-              note="値が小さいほど、次の音が予測しやすい"
+              value={t.metrics.predictability.value(
+                aestheticMetrics.predictability.conditionalEntropyBits.toFixed(2),
+                aestheticMetrics.predictability.maxEntropyBits.toFixed(2)
+              )}
+              note={t.metrics.predictability.note}
             />
             <MetricCard
-              title="旋律の自己相似性"
-              theory="自己相関によるモチーフ検出"
+              title={t.metrics.selfSimilarity.title}
+              theory={t.metrics.selfSimilarity.theory}
               formula="r(τ) = Σ(x[n]-μ)(x[n+τ]-μ) / Σ(x[n]-μ)²"
-              value={`ラグ${aestheticMetrics.selfSimilarity.bestLagNotes}音で相関 ${aestheticMetrics.selfSimilarity.correlation.toFixed(2)}`}
-              note="1に近いほど、その間隔で旋律が反復"
+              value={t.metrics.selfSimilarity.value(
+                aestheticMetrics.selfSimilarity.bestLagNotes,
+                aestheticMetrics.selfSimilarity.correlation.toFixed(2)
+              )}
+              note={t.metrics.selfSimilarity.note}
             />
           </div>
         </div>
@@ -90,25 +93,25 @@ export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
       {counterpoint && counterpoint.pairs.length > 0 && (
         <div>
           <SectionHeader
-            label="VOICE LEADING"
-            heading="複声部の対位法チェック"
-            description={`各パートを瞬間ごとに最高音1音へ単純化(単声化)し、パートの組ごとに声部間の運動(反行/斜行/並行/平行)を分類しています。いずれかのパートが休符の瞬間は比較から除外しています。平行5度・平行8度は古典的な対位法(Fuxのspecies counterpoint)で避けるべきとされる進行です。${
+            label={t.counterpoint.label}
+            heading={t.counterpoint.heading}
+            description={t.counterpoint.description(
               counterpoint.totalPartsFound > counterpoint.partsAnalyzed.length
-                ? ` パートが${counterpoint.totalPartsFound}あるため、先頭の${counterpoint.partsAnalyzed.length}パートのみ比較しています。`
+                ? t.counterpoint.descriptionExtra(counterpoint.totalPartsFound, counterpoint.partsAnalyzed.length)
                 : ""
-            }`}
+            )}
           />
           <div className="overflow-x-auto border-y border-zinc-100 dark:border-zinc-900">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-200 text-left text-zinc-500 dark:border-zinc-800">
-                  <th className="p-3 font-normal">パート</th>
-                  {(Object.keys(MOTION_LABEL) as MotionType[]).map((type) => (
+                  <th className="p-3 font-normal">{t.counterpoint.partColumn}</th>
+                  {motionTypes.map((type) => (
                     <th key={type} className="p-3 font-normal">
-                      {MOTION_LABEL[type]}
+                      {t.counterpoint.motion[type]}
                     </th>
                   ))}
-                  <th className="p-3 font-normal">平行5度/8度</th>
+                  <th className="p-3 font-normal">{t.counterpoint.parallelColumn}</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,7 +123,7 @@ export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
                     <td className="p-3 text-zinc-500">
                       {pair.partA} - {pair.partB}
                     </td>
-                    {(Object.keys(MOTION_LABEL) as MotionType[]).map((type) => (
+                    {motionTypes.map((type) => (
                       <td key={type} className="p-3">
                         {pair.motionPercentages[type].toFixed(0)}%
                       </td>
@@ -137,16 +140,12 @@ export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
       )}
 
       <div>
-        <SectionHeader
-          label="GENERATIVE MODEL"
-          heading="アルゴリズムによる生成(1次マルコフ連鎖)"
-          description="曲中のピッチクラス遷移確率(上の「予測可能性」と同じ行列)から、次の音を確率的にサンプリングして新しい音列を生成します。元の曲を作曲したアルゴリズムの再現ではなく、統計的性質を近似する単純な1次マルコフモデルによる生成です。"
-        />
+        <SectionHeader {...t.generative} />
         <button
           onClick={onGenerateMarkov}
           className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background"
         >
-          生成する
+          {t.generative.generate}
         </button>
 
         {markovSequence && (
@@ -159,18 +158,18 @@ export default function HarmonyTab({ data }: { data: HarmonyTabData }) {
                 <thead>
                   <tr className="text-left text-zinc-500">
                     <th className="pb-1 pr-4 font-normal"></th>
-                    <th className="pb-1 pr-4 font-normal">元の曲</th>
-                    <th className="pb-1 font-normal">生成列</th>
+                    <th className="pb-1 pr-4 font-normal">{t.generative.originalColumn}</th>
+                    <th className="pb-1 font-normal">{t.generative.generatedColumn}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="pr-4 text-zinc-500">協和度(平均Γ)</td>
+                    <td className="pr-4 text-zinc-500">{t.generative.consonanceRow}</td>
                     <td className="pr-4">{aestheticMetrics.consonance.averageGradus.toFixed(2)}</td>
                     <td>{markovMetrics.consonance.averageGradus.toFixed(2)}</td>
                   </tr>
                   <tr>
-                    <td className="pr-4 text-zinc-500">予測可能性(bit)</td>
+                    <td className="pr-4 text-zinc-500">{t.generative.predictabilityRow}</td>
                     <td className="pr-4">{aestheticMetrics.predictability.conditionalEntropyBits.toFixed(2)}</td>
                     <td>{markovMetrics.predictability.conditionalEntropyBits.toFixed(2)}</td>
                   </tr>

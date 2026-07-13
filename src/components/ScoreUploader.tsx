@@ -4,6 +4,8 @@ import { useCallback, useState } from "react";
 import type { ScoreAnalysis } from "@/lib/score/musicXml";
 import { parseAndMergeScoreFiles } from "@/lib/score/scoreMerge";
 import type { ScoreConsistencyWarning } from "@/lib/score/scoreConsistency";
+import { useDict, useLocale } from "@/lib/i18n/LocaleProvider";
+import { uploadersDict } from "@/lib/i18n/dict/uploaders";
 
 interface ScoreUploaderProps {
   onReady: (analysis: ScoreAnalysis, label: string, warnings: ScoreConsistencyWarning[]) => void;
@@ -30,6 +32,8 @@ type ParseState = "idle" | "parsing" | "error";
  * rather than blocking the upload.
  */
 export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps) {
+  const t = useDict(uploadersDict).score;
+  const { locale } = useLocale();
   const [parseState, setParseState] = useState<ParseState>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -42,7 +46,7 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
       setParseState("parsing");
       setErrorMessage(null);
       try {
-        const { analysis, label, warnings } = await parseAndMergeScoreFiles(files);
+        const { analysis, label, warnings } = await parseAndMergeScoreFiles(files, locale);
         setParseState("idle");
         onReady(analysis, label, warnings);
       } catch (err) {
@@ -50,14 +54,14 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
         setErrorMessage(err instanceof Error ? err.message : String(err));
       }
     },
-    [onReady]
+    [onReady, locale]
   );
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-full border border-zinc-300 px-4 py-1.5 text-xs font-medium disabled:opacity-50 dark:border-zinc-700">
-          楽譜/タブ譜ファイルを選択(複数可)
+          {t.chooseFile}
           <input
             type="file"
             accept=".musicxml,.xml,.mxl,.gp3,.gp4,.gp5,.gpx,.gp"
@@ -67,15 +71,9 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
             disabled={disabled || parseState === "parsing"}
           />
         </label>
-        {parseState === "parsing" && <span className="text-xs text-zinc-500">解析中…</span>}
+        {parseState === "parsing" && <span className="text-xs text-zinc-500">{t.parsing}</span>}
       </div>
-      <p className="text-xs leading-relaxed text-zinc-500">
-        Finale/Sibelius/Dorico/MuseScoreなどからエクスポートした.musicxml/.xml/.mxlファイル、または
-        Guitar Proのタブ譜ファイル(.gp3/.gp4/.gp5/.gpx/.gp)を読み込みます。
-        音声を経由せず、記譜データそのものを解析するため、和音のピッチ推定に音声解析特有の誤りが生じません。
-        複数ファイルを同時に選択すると(例:ギター・ベース・ドラムをそれぞれ別ファイルでエクスポートした場合)、
-        1つの曲として結合して解析します。ファイル間で長さ・テンポ・調・拍子が大きく異なる場合は警告を表示します。
-      </p>
+      <p className="text-xs leading-relaxed text-zinc-500">{t.description}</p>
       {parseState === "error" && errorMessage && <p className="text-sm text-red-500">{errorMessage}</p>}
     </div>
   );

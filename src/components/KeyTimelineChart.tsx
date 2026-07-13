@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import type { KeyTimelinePoint } from "@/lib/theory/keyTimeline";
 import { keyLabel } from "@/lib/theory/keyProfile";
 import { PITCH_CLASS_NAMES } from "@/lib/audio/pitch";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 interface KeyTimelineChartProps {
   timeline: KeyTimelinePoint[];
@@ -47,6 +49,7 @@ function formatTime(seconds: number): string {
  * per the project's "don't assert on a close call" rule (spec D-3).
  */
 export default function KeyTimelineChart({ timeline }: KeyTimelineChartProps) {
+  const t = useDict(chartsDict).keyTimeline;
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const maxTime = useMemo(
@@ -55,7 +58,7 @@ export default function KeyTimelineChart({ timeline }: KeyTimelineChartProps) {
   );
 
   if (timeline.length === 0) {
-    return <p className="text-sm text-zinc-400">キーを推定できるだけの音符がありません。</p>;
+    return <p className="text-sm text-zinc-400">{t.empty}</p>;
   }
 
   const points = timeline.map((point) => ({
@@ -86,11 +89,11 @@ export default function KeyTimelineChart({ timeline }: KeyTimelineChartProps) {
   return (
     <div className="py-2">
       <div className="mb-1 flex justify-between text-xs text-zinc-500">
-        <span>キーの推移(五度圏順、●=長調 / ○=短調、薄い点=確信度低)</span>
+        <span>{t.label}</span>
         {hovered && (
           <span className="font-mono">
             {formatTime(hovered.point.time)} — {keyLabel(hovered.point.key)}
-            {hovered.point.key.confidence === "low" && "(確信度低)"}
+            {hovered.point.key.confidence === "low" && t.lowConfidence}
           </span>
         )}
       </div>

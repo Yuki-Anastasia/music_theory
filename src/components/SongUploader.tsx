@@ -2,6 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import { startPcmRecording, PcmRecorderHandle } from "@/lib/audio/pcmRecorder";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { uploadersDict } from "@/lib/i18n/dict/uploaders";
 
 interface SongUploaderProps {
   onReady: (input: Blob | AudioBuffer, label: string) => void;
@@ -18,6 +20,7 @@ type RecordState = "idle" | "requesting" | "recording" | "denied" | "error";
  * decode audio data" for MediaRecorder's WebM/Opus output.
  */
 export default function SongUploader({ onReady, disabled }: SongUploaderProps) {
+  const t = useDict(uploadersDict).song;
   const [recordState, setRecordState] = useState<RecordState>("idle");
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -43,8 +46,8 @@ export default function SongUploader({ onReady, disabled }: SongUploaderProps) {
     timerRef.current = null;
     setRecordState("idle");
     setRecordSeconds(0);
-    onReady(buffer, "録音");
-  }, [onReady]);
+    onReady(buffer, t.recordedLabel);
+  }, [onReady, t.recordedLabel]);
 
   const startRecording = useCallback(async () => {
     setRecordState("requesting");
@@ -70,7 +73,7 @@ export default function SongUploader({ onReady, disabled }: SongUploaderProps) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-full bg-foreground px-5 py-2 font-medium text-background">
-          ファイルを選択
+          {t.chooseFile}
           <input
             type="file"
             accept="audio/*"
@@ -85,13 +88,11 @@ export default function SongUploader({ onReady, disabled }: SongUploaderProps) {
           disabled={disabled || recordState === "requesting"}
           className="rounded-full border border-zinc-300 px-5 py-2 font-medium disabled:opacity-50 dark:border-zinc-700"
         >
-          {isRecording ? `● 録音停止 (${recordSeconds}s)` : "マイクで録音"}
+          {isRecording ? t.recordStop(recordSeconds) : t.recordStart}
         </button>
       </div>
 
-      {recordState === "denied" && (
-        <p className="text-sm text-red-500">マイクの権限が拒否されました。ブラウザの設定を確認してください。</p>
-      )}
+      {recordState === "denied" && <p className="text-sm text-red-500">{t.micDenied}</p>}
       {recordState === "error" && errorMessage && <p className="text-sm text-red-500">{errorMessage}</p>}
     </div>
   );

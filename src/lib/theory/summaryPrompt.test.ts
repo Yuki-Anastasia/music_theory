@@ -92,6 +92,15 @@ describe("buildAnalysisFacts", () => {
     expect(facts).not.toContain("高揚・喜び");
   });
 
+  it("labels a notated tempo as such, distinct from an autocorrelation estimate", () => {
+    const mood: MoodFacts = {
+      ...EMPTY_MOOD,
+      tempo: { bpm: 120, confidence: "high", source: "notated" },
+    };
+    const facts = buildAnalysisFacts("song", 4, [], [], EMPTY_METRICS, mood, EMPTY_ARC);
+    expect(facts).toContain("約120BPM(楽譜に記譜された値)");
+  });
+
   it("narrates the song as a section-by-section arc rather than a single aggregate", () => {
     const arc: ArcSection[] = [
       {

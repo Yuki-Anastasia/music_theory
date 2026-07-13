@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 interface SignalSpectrogramProps {
   analyserRef: React.RefObject<AnalyserNode | null>;
@@ -41,6 +43,7 @@ function amplitudeToColor(value: number): string {
  * actually picking up sound, independent of whether YIN found a clean pitch.
  */
 export default function SignalSpectrogram({ analyserRef, isActive, hasSignal }: SignalSpectrogramProps) {
+  const t = useDict(chartsDict).spectrogram;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
@@ -93,11 +96,9 @@ export default function SignalSpectrogram({ analyserRef, isActive, hasSignal }: 
       }`}
     >
       <div className="mb-1 flex items-center justify-between text-xs text-zinc-500">
-        <span>
-          スペクトログラム(0–{MAX_DISPLAY_FREQ / 1000}kHz、左→右に時間経過)
-        </span>
+        <span>{t.label(MAX_DISPLAY_FREQ / 1000)}</span>
         <span className={hasSignal ? "font-medium text-[#2a78d6] dark:text-[#3987e5]" : "text-zinc-400"}>
-          {hasSignal ? "● 音を検出中" : "○ 無音"}
+          {hasSignal ? t.detecting : t.silent}
         </span>
       </div>
       <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} className="w-full rounded" />

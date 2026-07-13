@@ -25,6 +25,12 @@ describe("estimateTempo", () => {
   it("returns low confidence for too few events", () => {
     expect(estimateTempo([note(0), note(1)]).confidence).toBe("low");
   });
+
+  it("tags its result as an estimate, not a notated value", () => {
+    const events = Array.from({ length: 40 }, (_, i) => note(i * 0.5));
+    expect(estimateTempo(events).source).toBe("estimated");
+    expect(estimateTempo([note(0), note(1)]).source).toBe("estimated");
+  });
 });
 
 describe("rhythmicEntropy", () => {

@@ -1,6 +1,7 @@
 import type { KeyTimelinePoint } from "./keyTimeline";
 import type { DynamicsSummary } from "./dynamicsAnalysis";
 import type { HarmonicTensionEstimate, SelfSimilarityEstimate } from "./aestheticMetrics";
+import type { Locale } from "../i18n/locale";
 
 /**
  * Russell's circumplex model of affect (1980): perceived emotion mapped to
@@ -81,10 +82,25 @@ export function estimateArousal(
   );
 }
 
-/** Maps a (valence, arousal) point to Russell's 4 quadrant descriptions. */
-export function describeMoodQuadrant(valence: number, arousal: number): string {
-  if (valence >= 0 && arousal >= 0) return "高揚・喜び(高覚醒×快)";
-  if (valence < 0 && arousal >= 0) return "緊張・不安(高覚醒×不快)";
-  if (valence < 0 && arousal < 0) return "悲しみ・沈鬱(低覚醒×不快)";
-  return "穏やか・安らぎ(低覚醒×快)";
+const MOOD_QUADRANT_LABEL: Record<Locale, [excited: string, tense: string, sad: string, calm: string]> = {
+  ja: ["高揚・喜び(高覚醒×快)", "緊張・不安(高覚醒×不快)", "悲しみ・沈鬱(低覚醒×不快)", "穏やか・安らぎ(低覚醒×快)"],
+  en: [
+    "Excited / joyful (high arousal × pleasant)",
+    "Tense / anxious (high arousal × unpleasant)",
+    "Sad / gloomy (low arousal × unpleasant)",
+    "Calm / at ease (low arousal × pleasant)",
+  ],
+};
+
+/**
+ * Maps a (valence, arousal) point to Russell's 4 quadrant descriptions.
+ * Defaults to Japanese since the AI-summary facts pipeline (summaryPrompt.ts)
+ * always calls this without a locale — only UI call sites pass one.
+ */
+export function describeMoodQuadrant(valence: number, arousal: number, locale: Locale = "ja"): string {
+  const [excited, tense, sad, calm] = MOOD_QUADRANT_LABEL[locale];
+  if (valence >= 0 && arousal >= 0) return excited;
+  if (valence < 0 && arousal >= 0) return tense;
+  if (valence < 0 && arousal < 0) return sad;
+  return calm;
 }

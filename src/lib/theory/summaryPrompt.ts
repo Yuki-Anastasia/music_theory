@@ -86,7 +86,13 @@ function summarizeMood(mood: MoodFacts): string {
   const { tempo, rhythmEntropy } = mood;
   return [
     "テンポ・リズムの推定:",
-    `- テンポ: 約${tempo.bpm}BPM${tempo.confidence === "low" ? "(確信度低、規則的な拍を検出できず)" : ""}`,
+    `- テンポ: 約${tempo.bpm}BPM${
+      tempo.source === "notated"
+        ? "(楽譜に記譜された値)"
+        : tempo.confidence === "low"
+          ? "(確信度低、規則的な拍を検出できず)"
+          : ""
+    }`,
     `- リズムの複雑さ(音価分布のシャノンエントロピー、bit、最大${rhythmEntropy.maxEntropyBits.toFixed(2)}): ${rhythmEntropy.entropyBits.toFixed(2)}`,
   ].join("\n");
 }

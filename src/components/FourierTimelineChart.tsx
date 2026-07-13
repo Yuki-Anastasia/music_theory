@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import type { FourierTimelinePoint } from "@/lib/theory/fourierTimeline";
+import { useDict } from "@/lib/i18n/LocaleProvider";
+import { chartsDict } from "@/lib/i18n/dict/charts";
 
 interface FourierTimelineChartProps {
   timeline: FourierTimelinePoint[];
@@ -14,14 +16,6 @@ const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right;
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
 
 const SERIES_COLOR_LIGHT = "#2a78d6";
-
-const COEFFICIENT_LABELS: Record<number, string> = {
-  1: "半音階的な偏り",
-  3: "増三和音的",
-  4: "オクタトニック的",
-  5: "ダイアトニック的(五度圏)",
-  6: "全音音階的",
-};
 
 function timeX(time: number, maxTime: number): number {
   return MARGIN.left + (maxTime === 0 ? 0 : (time / maxTime) * PLOT_WIDTH);
@@ -44,6 +38,7 @@ function formatTime(seconds: number): string {
  * a breakdown rather than becoming five more lines on the same axis.
  */
 export default function FourierTimelineChart({ timeline }: FourierTimelineChartProps) {
+  const t = useDict(chartsDict).fourierTimeline;
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
   const maxTime = useMemo(
@@ -52,7 +47,7 @@ export default function FourierTimelineChart({ timeline }: FourierTimelineChartP
   );
 
   if (timeline.length === 0) {
-    return <p className="text-sm text-zinc-400">解析できるだけの音符がありません。</p>;
+    return <p className="text-sm text-zinc-400">{t.empty}</p>;
   }
 
   const x5 = (point: FourierTimelinePoint) => point.coefficients.find((c) => c.k === 5)!.normalizedMagnitude;
@@ -87,7 +82,7 @@ export default function FourierTimelineChart({ timeline }: FourierTimelineChartP
   return (
     <div className="py-2">
       <div className="mb-1 flex justify-between text-xs text-zinc-500">
-        <span>|X₅| ダイアトニック度の推移(1=五度圏上に強く集中、0=分散)</span>
+        <span>{t.label}</span>
         {hovered && (
           <span className="font-mono">
             {formatTime(hovered.point.time)} — |X₅|={x5(hovered.point).toFixed(2)}
@@ -158,7 +153,7 @@ export default function FourierTimelineChart({ timeline }: FourierTimelineChartP
           {hoveredBreakdown.map((c) => (
             <div key={c.k}>
               <span className="font-mono">|X{toSubscript(c.k)}|={c.normalizedMagnitude.toFixed(2)}</span>{" "}
-              <span>{COEFFICIENT_LABELS[c.k]}</span>
+              <span>{t.coefficients[c.k]}</span>
             </div>
           ))}
         </div>

@@ -3,6 +3,7 @@ import type { NormalizedNoteEvent } from "../theory/normalizedEvents";
 import type { FileScoreAnalysis, ScoreConsistencyWarning } from "./scoreConsistency";
 import { checkConsistency } from "./scoreConsistency";
 import { parseAnyScoreFile } from "./scoreFile";
+import type { Locale } from "../i18n/locale";
 
 function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^./\\]+$/, "");
@@ -77,14 +78,14 @@ export interface MergedScoreResult {
  * ScoreUploader can use this one code path regardless of how many files
  * were selected.
  */
-export async function parseAndMergeScoreFiles(files: File[]): Promise<MergedScoreResult> {
+export async function parseAndMergeScoreFiles(files: File[], locale: Locale = "ja"): Promise<MergedScoreResult> {
   const fileAnalyses: FileScoreAnalysis[] = await Promise.all(
     files.map(async (file) => ({ fileName: file.name, analysis: await parseAnyScoreFile(file) }))
   );
 
   return {
     analysis: mergeScoreAnalyses(fileAnalyses),
-    warnings: checkConsistency(fileAnalyses),
+    warnings: checkConsistency(fileAnalyses, locale),
     label: files.map((f) => f.name).join(" + "),
   };
 }

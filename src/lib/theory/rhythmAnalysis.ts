@@ -10,6 +10,10 @@ const TEMPO_CONFIDENCE_THRESHOLD = 0.3;
 export interface TempoEstimate {
   bpm: number;
   confidence: "high" | "low";
+  /** Where the bpm came from — absent (undefined) means "estimated" for
+   * callers that construct a TempoEstimate directly (e.g. from a notated
+   * tempo marking) without going through estimateTempo(). */
+  source?: "notated" | "estimated";
 }
 
 function buildOnsetDensitySignal(events: NormalizedNoteEvent[], binSec: number): number[] {
@@ -29,13 +33,13 @@ function buildOnsetDensitySignal(events: NormalizedNoteEvent[], binSec: number):
  * melodicSelfSimilarity, applied to onset timing instead of pitch.
  */
 export function estimateTempo(events: NormalizedNoteEvent[]): TempoEstimate {
-  if (events.length < 4) return { bpm: 0, confidence: "low" };
+  if (events.length < 4) return { bpm: 0, confidence: "low", source: "estimated" };
 
   const signal = buildOnsetDensitySignal(events, ONSET_BIN_SEC);
   const mean = signal.reduce((s, v) => s + v, 0) / signal.length;
   const centered = signal.map((v) => v - mean);
   const zeroLagEnergy = centered.reduce((s, v) => s + v * v, 0);
-  if (zeroLagEnergy === 0) return { bpm: 0, confidence: "low" };
+  if (zeroLagEnergy === 0) return { bpm: 0, confidence: "low", source: "estimated" };
 
   const minLag = Math.max(1, Math.round(60 / MAX_BPM / ONSET_BIN_SEC));
   const maxLag = Math.min(centered.length - 1, Math.round(60 / MIN_BPM / ONSET_BIN_SEC));
@@ -58,6 +62,7 @@ export function estimateTempo(events: NormalizedNoteEvent[]): TempoEstimate {
   return {
     bpm: Math.round(bpm * 10) / 10,
     confidence: bestCorrelation >= TEMPO_CONFIDENCE_THRESHOLD ? "high" : "low",
+    source: "estimated",
   };
 }
 

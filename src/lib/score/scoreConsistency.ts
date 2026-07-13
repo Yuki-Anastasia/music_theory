@@ -3,6 +3,7 @@ import { estimateTempo } from "../theory/rhythmAnalysis";
 import { estimateKeyTimeline } from "../theory/keyTimeline";
 import { keyLabel } from "../theory/keyProfile";
 import type { Mode } from "../theory/keyProfile";
+import type { Locale } from "../i18n/locale";
 
 // Only warn on a duration gap that's both proportionally large AND not
 // trivially small in absolute terms — avoids flagging short excerpts where
@@ -89,9 +90,47 @@ function firstReliableKey(analysis: ScoreAnalysis): ReliableKey | null {
  * theory modules (e.g. low-confidence key/tempo estimates are shown, not
  * suppressed).
  */
-export function checkConsistency(files: FileScoreAnalysis[]): ScoreConsistencyWarning[] {
+const MESSAGES: Record<
+  Locale,
+  {
+    duration: (refName: string, refSec: string, name: string, sec: string) => string;
+    tempo: (refName: string, refQualifier: string, refBpm: number, name: string, qualifier: string, bpm: number) => string;
+    key: (refName: string, refKey: string, name: string, key: string) => string;
+    meter: (refName: string, refMeter: string, name: string, meter: string) => string;
+    estimatedQualifier: string;
+    notatedQualifier: string;
+  }
+> = {
+  ja: {
+    duration: (refName, refSec, name, sec) =>
+      `長さの不一致: 「${refName}」(${refSec}秒)と「${name}」(${sec}秒)で長さの差が大きく、同じ曲・同じ区間でない可能性があります。`,
+    tempo: (refName, refQualifier, refBpm, name, qualifier, bpm) =>
+      `テンポの不一致: 「${refName}」(${refQualifier}約${refBpm}BPM)と「${name}」(${qualifier}約${bpm}BPM)でテンポが大きく異なります。`,
+    key: (refName, refKey, name, key) =>
+      `調の不一致: 「${refName}」(${refKey})と「${name}」(${key})で調が異なります(移調楽器の記譜など、正当な理由がある場合もあります)。`,
+    meter: (refName, refMeter, name, meter) =>
+      `拍子の不一致: 「${refName}」(${refMeter})と「${name}」(${meter})で拍子が異なります。`,
+    estimatedQualifier: "推定",
+    notatedQualifier: "記譜",
+  },
+  en: {
+    duration: (refName, refSec, name, sec) =>
+      `Duration mismatch: "${refName}" (${refSec}s) and "${name}" (${sec}s) differ a lot in length — they may not be the same song or section.`,
+    tempo: (refName, refQualifier, refBpm, name, qualifier, bpm) =>
+      `Tempo mismatch: "${refName}" (${refQualifier} ~${refBpm}BPM) and "${name}" (${qualifier} ~${bpm}BPM) differ significantly in tempo.`,
+    key: (refName, refKey, name, key) =>
+      `Key mismatch: "${refName}" (${refKey}) and "${name}" (${key}) are in different keys (this can be legitimate, e.g. a transposing instrument's notation).`,
+    meter: (refName, refMeter, name, meter) =>
+      `Meter mismatch: "${refName}" (${refMeter}) and "${name}" (${meter}) have different time signatures.`,
+    estimatedQualifier: "estimated",
+    notatedQualifier: "notated",
+  },
+};
+
+export function checkConsistency(files: FileScoreAnalysis[], locale: Locale = "ja"): ScoreConsistencyWarning[] {
   if (files.length < 2) return [];
 
+  const m = MESSAGES[locale];
   const warnings: ScoreConsistencyWarning[] = [];
   const [reference, ...rest] = files;
 
@@ -103,7 +142,7 @@ export function checkConsistency(files: FileScoreAnalysis[]): ScoreConsistencyWa
     if (absDiff > DURATION_MISMATCH_ABSOLUTE_FLOOR_SEC && relDiff > DURATION_MISMATCH_RELATIVE) {
       warnings.push({
         type: "duration",
-        message: `長さの不一致: 「${reference.fileName}」(${referenceDuration.toFixed(1)}秒)と「${file.fileName}」(${duration.toFixed(1)}秒)で長さの差が大きく、同じ曲・同じ区間でない可能性があります。`,
+        message: m.duration(reference.fileName, referenceDuration.toFixed(1), file.fileName, duration.toFixed(1)),
       });
     }
   }
@@ -114,11 +153,11 @@ export function checkConsistency(files: FileScoreAnalysis[]): ScoreConsistencyWa
       const tempo = reliableTempo(file.analysis);
       if (!tempo) continue;
       if (Math.abs(tempo.bpm - referenceTempo.bpm) > TEMPO_MISMATCH_BPM) {
-        const refQualifier = referenceTempo.source === "estimated" ? "推定" : "記譜";
-        const qualifier = tempo.source === "estimated" ? "推定" : "記譜";
+        const refQualifier = referenceTempo.source === "estimated" ? m.estimatedQualifier : m.notatedQualifier;
+        const qualifier = tempo.source === "estimated" ? m.estimatedQualifier : m.notatedQualifier;
         warnings.push({
           type: "tempo",
-          message: `テンポの不一致: 「${reference.fileName}」(${refQualifier}約${referenceTempo.bpm}BPM)と「${file.fileName}」(${qualifier}約${tempo.bpm}BPM)でテンポが大きく異なります。`,
+          message: m.tempo(reference.fileName, refQualifier, referenceTempo.bpm, file.fileName, qualifier, tempo.bpm),
         });
       }
     }
@@ -132,7 +171,7 @@ export function checkConsistency(files: FileScoreAnalysis[]): ScoreConsistencyWa
       if (key.tonic !== referenceKey.tonic || key.mode !== referenceKey.mode) {
         warnings.push({
           type: "key",
-          message: `調の不一致: 「${reference.fileName}」(${keyLabel(referenceKey)})と「${file.fileName}」(${keyLabel(key)})で調が異なります(移調楽器の記譜など、正当な理由がある場合もあります)。`,
+          message: m.key(reference.fileName, keyLabel(referenceKey), file.fileName, keyLabel(key)),
         });
       }
     }
@@ -146,7 +185,12 @@ export function checkConsistency(files: FileScoreAnalysis[]): ScoreConsistencyWa
       if (meter.numerator !== referenceMeter.numerator || meter.denominator !== referenceMeter.denominator) {
         warnings.push({
           type: "meter",
-          message: `拍子の不一致: 「${reference.fileName}」(${referenceMeter.numerator}/${referenceMeter.denominator})と「${file.fileName}」(${meter.numerator}/${meter.denominator})で拍子が異なります。`,
+          message: m.meter(
+            reference.fileName,
+            `${referenceMeter.numerator}/${referenceMeter.denominator}`,
+            file.fileName,
+            `${meter.numerator}/${meter.denominator}`
+          ),
         });
       }
     }
