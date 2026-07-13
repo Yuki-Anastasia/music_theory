@@ -1,12 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { buildAnalysisFacts } from "./summaryPrompt";
+import { buildAnalysisFacts, AnalysisFactsInput } from "./summaryPrompt";
 import type { KeyTimelinePoint } from "./keyTimeline";
+import type { FourierTimelinePoint } from "./fourierTimeline";
 import type { TonnetzTimelinePoint } from "./tonnetzTimeline";
 import type { AestheticMetrics } from "./aestheticMetrics";
 import type { MoodFacts } from "./summaryPrompt";
-import type { ArcSection } from "./songArc";
+import type { ArcSection, ClimaxEstimate } from "./songArc";
 import type { MeterAnalysisResult } from "./meterAnalysis";
 import type { CounterpointAnalysis } from "./counterpoint";
+import type { NotatedKeyPoint } from "../score/musicXml";
+import type { ScoreConsistencyWarning } from "../score/scoreConsistency";
+import type { MelodicRange } from "./melodicRange";
+import type { ModulationEvent } from "./modulation";
+import type { ChordFunctionPoint } from "./chordFunction";
+import type { RecurrenceMatch } from "./songForm";
 
 const EMPTY_METRICS: AestheticMetrics = {
   consonance: { averageGradus: 0, consonanceScore: 0 },
@@ -31,34 +38,49 @@ function chordPoint(time: number, root: number, mode: "major" | "minor"): Tonnet
   return { time, chord: { root, mode, coverage: 1, confidence: "high" } };
 }
 
+/** Minimal base input for buildAnalysisFacts — individual tests spread overrides on top. */
+function baseInput(overrides: Partial<AnalysisFactsInput> = {}): AnalysisFactsInput {
+  return {
+    label: "song",
+    durationSec: 10,
+    keyTimeline: [],
+    fourierTimeline: [],
+    tonnetzTrajectory: [],
+    metrics: EMPTY_METRICS,
+    mood: EMPTY_MOOD,
+    arc: EMPTY_ARC,
+    ...overrides,
+  };
+}
+
 describe("buildAnalysisFacts", () => {
   it("includes the song label and duration", () => {
-    const facts = buildAnalysisFacts("test.mp3", 90, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ label: "test.mp3", durationSec: 90 }));
     expect(facts).toContain("test.mp3");
     expect(facts).toContain("1:30");
   });
 
   it("collapses consecutive identical keys into one segment with a time range", () => {
     const keyTimeline = [keyPoint(0, 0, "major"), keyPoint(4, 0, "major"), keyPoint(8, 7, "major")];
-    const facts = buildAnalysisFacts("song", 12, keyTimeline, [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ keyTimeline, durationSec: 12 }));
     expect(facts).toContain("0:00-0:08 C");
     expect(facts).toContain("0:08-0:12 G");
   });
 
   it("flags low-confidence key segments", () => {
     const keyTimeline = [keyPoint(0, 2, "minor", "low")];
-    const facts = buildAnalysisFacts("song", 4, keyTimeline, [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ keyTimeline, durationSec: 4 }));
     expect(facts).toContain("Dm(確信度低)");
   });
 
   it("joins the chord trajectory with arrows", () => {
     const trajectory = [chordPoint(0, 0, "major"), chordPoint(2, 5, "major"), chordPoint(4, 7, "major")];
-    const facts = buildAnalysisFacts("song", 6, [], trajectory, EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ tonnetzTrajectory: trajectory, durationSec: 6 }));
     expect(facts).toContain("C → F → G");
   });
 
   it("reports 'no data' for empty timelines rather than crashing", () => {
-    const facts = buildAnalysisFacts("song", 0, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ durationSec: 0 }));
     expect(facts).toContain("データなし");
   });
 
@@ -69,7 +91,7 @@ describe("buildAnalysisFacts", () => {
       predictability: { conditionalEntropyBits: 1.8, maxEntropyBits: Math.log2(12) },
       selfSimilarity: { bestLagNotes: 4, correlation: 0.62 },
     };
-    const facts = buildAnalysisFacts("song", 10, [], [], metrics, EMPTY_MOOD, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ metrics }));
     expect(facts).toContain("シャノンの条件付きエントロピー");
     expect(facts).toContain("1.80");
     expect(facts).toContain("ラグ4音で相関0.62");
@@ -85,7 +107,7 @@ describe("buildAnalysisFacts", () => {
       valence: 0.5,
       arousal: 0.6,
     };
-    const facts = buildAnalysisFacts("song", 4, [], [], EMPTY_METRICS, mood, EMPTY_ARC);
+    const facts = buildAnalysisFacts(baseInput({ mood }));
     expect(facts).toContain("約128BPM");
     expect(facts).not.toContain("クレッシェンド");
     expect(facts).not.toContain("Russell");
@@ -93,11 +115,8 @@ describe("buildAnalysisFacts", () => {
   });
 
   it("labels a notated tempo as such, distinct from an autocorrelation estimate", () => {
-    const mood: MoodFacts = {
-      ...EMPTY_MOOD,
-      tempo: { bpm: 120, confidence: "high", source: "notated" },
-    };
-    const facts = buildAnalysisFacts("song", 4, [], [], EMPTY_METRICS, mood, EMPTY_ARC);
+    const mood: MoodFacts = { ...EMPTY_MOOD, tempo: { bpm: 120, confidence: "high", source: "notated" } };
+    const facts = buildAnalysisFacts(baseInput({ mood }));
     expect(facts).toContain("約120BPM(楽譜に記譜された値)");
   });
 
@@ -107,6 +126,7 @@ describe("buildAnalysisFacts", () => {
         startSec: 0,
         endSec: 4,
         consonance: { averageGradus: 4, consonanceScore: 0.25 },
+        harmonicTension: { averageVoiceLeadingDistance: 1, maxVoiceLeadingDistance: 1 },
         dynamics: { averageLoudness: 0.2, dynamicRange: 0.1, trend: "stable" },
         valence: 0.5,
         arousal: -0.5,
@@ -115,12 +135,13 @@ describe("buildAnalysisFacts", () => {
         startSec: 4,
         endSec: 8,
         consonance: { averageGradus: 11, consonanceScore: 0.09 },
+        harmonicTension: { averageVoiceLeadingDistance: 3, maxVoiceLeadingDistance: 3 },
         dynamics: { averageLoudness: 0.9, dynamicRange: 0.3, trend: "crescendo" },
         valence: -0.5,
         arousal: 0.6,
       },
     ];
-    const facts = buildAnalysisFacts("song", 8, [], [], EMPTY_METRICS, EMPTY_MOOD, arc);
+    const facts = buildAnalysisFacts(baseInput({ arc, durationSec: 8 }));
     expect(facts).toContain("曲の推移");
     expect(facts).toContain("0:00-0:04");
     expect(facts).toContain("0:04-0:08");
@@ -130,10 +151,11 @@ describe("buildAnalysisFacts", () => {
     expect(facts).toContain("緊張・不安");
   });
 
-  it("still works with the pre-existing 7-arg call (meter/counterpoint omitted)", () => {
-    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+  it("still works with meter/counterpoint/includedParts omitted", () => {
+    const facts = buildAnalysisFacts(baseInput());
     expect(facts).not.toContain("シンコペーション");
     expect(facts).not.toContain("対位法");
+    expect(facts).not.toContain("解析対象パート");
   });
 
   it("includes the meter/syncopation section when meter is present", () => {
@@ -142,13 +164,13 @@ describe("buildAnalysisFacts", () => {
       syncopation: { rawScore: 3, maxPossibleScore: 5, normalizedScore: 0.6, averageContributionPerPair: 3, pairCount: 1 },
       harmonicRhythmAlignment: null,
     };
-    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, meter);
+    const facts = buildAnalysisFacts(baseInput({ meter }));
     expect(facts).toContain("シンコペーション指数: 0.60");
     expect(facts).toContain("4/4拍子");
   });
 
   it("omits the meter section entirely when meter is null (audio-transcribed input)", () => {
-    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, null);
+    const facts = buildAnalysisFacts(baseInput({ meter: null }));
     expect(facts).not.toContain("シンコペーション");
   });
 
@@ -169,37 +191,123 @@ describe("buildAnalysisFacts", () => {
       partsAnalyzed: ["Soprano", "Alto"],
       totalPartsFound: 2,
     };
-    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, null, counterpoint);
+    const facts = buildAnalysisFacts(baseInput({ counterpoint }));
     expect(facts).toContain("Soprano - Alto");
     expect(facts).toContain("反行50%");
     expect(facts).toContain("平行5度2回");
   });
 
-  it("omits the counterpoint section when counterpoint is omitted", () => {
-    const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
-    expect(facts).not.toContain("対位法");
-  });
-
   it("states which parts the analysis covers when includedParts is given", () => {
-    const facts = buildAnalysisFacts(
-      "song",
-      10,
-      [],
-      [],
-      EMPTY_METRICS,
-      EMPTY_MOOD,
-      EMPTY_ARC,
-      null,
-      null,
-      ["Guitar", "Bass"]
-    );
+    const facts = buildAnalysisFacts(baseInput({ includedParts: ["Guitar", "Bass"] }));
     expect(facts).toContain("解析対象パート: Guitar、Bass");
   });
 
-  it("omits the included-parts line when includedParts is empty or omitted", () => {
-    const withEmpty = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, null, null, []);
-    const withOmitted = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
-    expect(withEmpty).not.toContain("解析対象パート");
-    expect(withOmitted).not.toContain("解析対象パート");
+  it("omits the included-parts line when includedParts is empty", () => {
+    const facts = buildAnalysisFacts(baseInput({ includedParts: [] }));
+    expect(facts).not.toContain("解析対象パート");
+  });
+
+  it("includes the notated key signature as ground truth, distinct from the estimated key timeline", () => {
+    const notatedKeyTimeline: NotatedKeyPoint[] = [{ time: 0, tonic: 7, mode: "major" }];
+    const facts = buildAnalysisFacts(baseInput({ notatedKeyTimeline, durationSec: 10 }));
+    expect(facts).toContain("記譜上の調号");
+    expect(facts).toContain("0:00-0:10 G");
+  });
+
+  it("omits the notated key section when absent", () => {
+    const facts = buildAnalysisFacts(baseInput());
+    expect(facts).not.toContain("記譜上の調号");
+  });
+
+  it("summarizes the Fourier/diatonicity trend, or 'no data' when empty", () => {
+    const fourierTimeline: FourierTimelinePoint[] = [
+      { time: 0, coefficients: [{ k: 5, magnitude: 1, normalizedMagnitude: 0.2, phase: 0 }] },
+      { time: 4, coefficients: [{ k: 5, magnitude: 1, normalizedMagnitude: 0.8, phase: 0 }] },
+    ];
+    const withData = buildAnalysisFacts(baseInput({ fourierTimeline }));
+    expect(withData).toContain("ダイアトニック度");
+    expect(withData).toContain("平均0.50");
+    expect(withData).toContain("最小0.20");
+    expect(withData).toContain("最大0.80");
+
+    const withoutData = buildAnalysisFacts(baseInput());
+    expect(withoutData).toContain("ダイアトニック度: データなし");
+  });
+
+  it("includes score-consistency warnings when present", () => {
+    const scoreWarnings: ScoreConsistencyWarning[] = [{ type: "tempo", message: "テンポが一致しません" }];
+    const facts = buildAnalysisFacts(baseInput({ scoreWarnings }));
+    expect(facts).toContain("整合性の警告");
+    expect(facts).toContain("テンポが一致しません");
+  });
+
+  it("omits the score-warnings section when absent/empty", () => {
+    expect(buildAnalysisFacts(baseInput())).not.toContain("整合性の警告");
+    expect(buildAnalysisFacts(baseInput({ scoreWarnings: [] }))).not.toContain("整合性の警告");
+  });
+
+  it("includes melodic range when present", () => {
+    const melodicRange: MelodicRange = { minMidi: 60, maxMidi: 72, meanMidi: 66, rangeSemitones: 12 };
+    const facts = buildAnalysisFacts(baseInput({ melodicRange }));
+    expect(facts).toContain("旋律の音域");
+    expect(facts).toContain("12半音");
+  });
+
+  it("omits melodic range when null", () => {
+    expect(buildAnalysisFacts(baseInput({ melodicRange: null }))).not.toContain("旋律の音域");
+  });
+
+  it("includes the climax section when present", () => {
+    const climax: ClimaxEstimate = { sectionIndex: 1, startSec: 4, endSec: 8, score: 2.5 };
+    const facts = buildAnalysisFacts(baseInput({ climax }));
+    expect(facts).toContain("山場の仮説");
+    expect(facts).toContain("第2区間");
+    expect(facts).toContain("0:04-0:08");
+  });
+
+  it("omits the climax section when null", () => {
+    expect(buildAnalysisFacts(baseInput({ climax: null }))).not.toContain("山場");
+  });
+
+  it("includes modulation events when present", () => {
+    const modulations: ModulationEvent[] = [
+      { time: 10, fromTonic: 0, fromMode: "major", toTonic: 7, toMode: "major", relationship: "dominant", lowConfidence: false },
+    ];
+    const facts = buildAnalysisFacts(baseInput({ modulations }));
+    expect(facts).toContain("転調");
+    expect(facts).toContain("C → G");
+    expect(facts).toContain("属調");
+  });
+
+  it("omits modulations when absent/empty", () => {
+    expect(buildAnalysisFacts(baseInput())).not.toContain("転調");
+    expect(buildAnalysisFacts(baseInput({ modulations: [] }))).not.toContain("転調");
+  });
+
+  it("includes chord functions as a Roman-numeral sequence when present", () => {
+    const chordFunctions: ChordFunctionPoint[] = [
+      { time: 0, root: 0, chordMode: "major", keyTonic: 0, keyMode: "major", romanNumeral: "I" },
+      { time: 2, root: 7, chordMode: "major", keyTonic: 0, keyMode: "major", romanNumeral: "V" },
+    ];
+    const facts = buildAnalysisFacts(baseInput({ chordFunctions }));
+    expect(facts).toContain("和音の機能");
+    expect(facts).toContain("I → V");
+  });
+
+  it("omits chord functions when absent/empty", () => {
+    expect(buildAnalysisFacts(baseInput())).not.toContain("和音の機能");
+    expect(buildAnalysisFacts(baseInput({ chordFunctions: [] }))).not.toContain("和音の機能");
+  });
+
+  it("includes a song-form recurrence hypothesis when present", () => {
+    const songForm: RecurrenceMatch = { a: { startSec: 0, endSec: 6 }, b: { startSec: 60, endSec: 66 }, similarity: 0.9 };
+    const facts = buildAnalysisFacts(baseInput({ songForm }));
+    expect(facts).toContain("曲の構成の仮説");
+    expect(facts).toContain("0:00-0:06");
+    expect(facts).toContain("1:00-1:06");
+  });
+
+  it("omits song form when null", () => {
+    expect(buildAnalysisFacts(baseInput({ songForm: null }))).not.toContain("曲の構成");
   });
 });

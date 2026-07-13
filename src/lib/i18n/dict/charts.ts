@@ -11,7 +11,15 @@ interface ChartsDict {
     label: string;
     coefficients: Record<number, string>;
   };
-  tonnetzView: { empty: string; label: string; lowConfidence: string; lowConfidenceMark: string; start: string; end: string };
+  tonnetzView: {
+    empty: string;
+    label: string;
+    lowConfidence: string;
+    lowConfidenceMark: string;
+    start: string;
+    end: string;
+    fit: string;
+  };
 }
 
 export const chartsDict: Record<Locale, ChartsDict> = {
@@ -48,11 +56,12 @@ export const chartsDict: Record<Locale, ChartsDict> = {
     },
     tonnetzView: {
       empty: "和音を推定できるだけの音符がありません。",
-      label: "Tonnetz軌跡(薄い点=確信度低、色が濃いほど後の時刻)",
+      label: "Tonnetz軌跡(ドラッグで移動、スクロールで拡大縮小、薄い点=確信度低、色が濃いほど後の時刻)",
       lowConfidence: "(確信度低)",
       lowConfidenceMark: "?(確信度低)",
       start: "開始",
       end: "終了",
+      fit: "軌跡全体を表示",
     },
   },
   en: {
@@ -88,11 +97,12 @@ export const chartsDict: Record<Locale, ChartsDict> = {
     },
     tonnetzView: {
       empty: "Not enough notes to estimate chords.",
-      label: "Tonnetz trajectory (faint dot=low confidence, darker=later in time)",
+      label: "Tonnetz trajectory (drag to pan, scroll to zoom, faint dot=low confidence, darker=later in time)",
       lowConfidence: "(low confidence)",
       lowConfidenceMark: "?(low confidence)",
       start: "Start",
       end: "End",
+      fit: "Fit to trajectory",
     },
   },
 };

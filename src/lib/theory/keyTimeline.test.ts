@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { estimateKeyTimeline } from "./keyTimeline";
+import { estimateKeyTimeline, keyActiveAt, KeyTimelinePoint } from "./keyTimeline";
 import { NormalizedNoteEvent } from "./normalizedEvents";
 
 function makeScaleEvents(pitchClasses: number[], startTime: number, endTime: number): NormalizedNoteEvent[] {
@@ -52,5 +52,27 @@ describe("estimateKeyTimeline", () => {
     for (const point of timeline) {
       expect(point.key.correlation).not.toBeNaN();
     }
+  });
+});
+
+describe("keyActiveAt", () => {
+  const timeline: KeyTimelinePoint[] = [
+    { time: 0, key: { tonic: 0, mode: "major", correlation: 0.9, confidence: "high" } },
+    { time: 8, key: { tonic: 7, mode: "major", correlation: 0.9, confidence: "high" } },
+  ];
+
+  it("returns null for an empty timeline", () => {
+    expect(keyActiveAt([], 5)).toBeNull();
+  });
+
+  it("returns null when time precedes the first window", () => {
+    expect(keyActiveAt(timeline, -1)).toBeNull();
+  });
+
+  it("returns the last window whose start is <= the given time", () => {
+    expect(keyActiveAt(timeline, 0)?.tonic).toBe(0);
+    expect(keyActiveAt(timeline, 7.9)?.tonic).toBe(0);
+    expect(keyActiveAt(timeline, 8)?.tonic).toBe(7);
+    expect(keyActiveAt(timeline, 100)?.tonic).toBe(7);
   });
 });

@@ -1,14 +1,23 @@
 import type { KeyTimelinePoint } from "./keyTimeline";
+import type { FourierTimelinePoint } from "./fourierTimeline";
 import type { TonnetzTimelinePoint } from "./tonnetzTimeline";
 import type { AestheticMetrics } from "./aestheticMetrics";
 import type { TempoEstimate, RhythmicEntropyEstimate } from "./rhythmAnalysis";
 import type { DynamicsSummary } from "./dynamicsAnalysis";
-import type { ArcSection } from "./songArc";
+import type { ArcSection, ClimaxEstimate } from "./songArc";
 import type { MeterAnalysisResult } from "./meterAnalysis";
 import type { CounterpointAnalysis, MotionType } from "./counterpoint";
-import { keyLabel } from "./keyProfile";
+import type { NotatedKeyPoint } from "../score/musicXml";
+import type { ScoreConsistencyWarning } from "../score/scoreConsistency";
+import type { MelodicRange } from "./melodicRange";
+import type { ModulationEvent } from "./modulation";
+import type { ChordFunctionPoint } from "./chordFunction";
+import type { RecurrenceMatch } from "./songForm";
+import { collapseKeySegments } from "./keyProfile";
 import { chordLabel } from "./tonnetz";
 import { describeMoodQuadrant } from "./emotionEstimate";
+import { midiToNoteName } from "../audio/pitch";
+import { modulationLabel } from "./modulation";
 
 export interface MoodFacts {
   tempo: TempoEstimate;
@@ -26,32 +35,63 @@ function formatTime(seconds: number): string {
 
 function summarizeKeyTimeline(keyTimeline: KeyTimelinePoint[], durationSec: number): string {
   if (keyTimeline.length === 0) return "キー推移: データなし";
-
-  const segments: { start: number; end: number; label: string; lowConfidence: boolean }[] = [];
-  for (const point of keyTimeline) {
-    const last = segments[segments.length - 1];
-    const label = keyLabel(point.key);
-    if (last && last.label === label) {
-      last.end = point.time;
-    } else {
-      segments.push({ start: point.time, end: point.time, label, lowConfidence: point.key.confidence === "low" });
-    }
-  }
-  // Extend each segment's end to the start of the next one (or song end for the last).
-  for (let i = 0; i < segments.length; i++) {
-    segments[i].end = i + 1 < segments.length ? segments[i + 1].start : durationSec;
-  }
-
+  const segments = collapseKeySegments(keyTimeline, durationSec, (p) => p.key, (p) => p.key.confidence === "low");
   const lines = segments.map(
-    (s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}${s.lowConfidence ? "(確信度低)" : ""}`
+    (s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}${s.flagged ? "(確信度低)" : ""}`
   );
-  return `キー推移: ${lines.join(", ")}`;
+  return `キー推移(推定): ${lines.join(", ")}`;
+}
+
+/** Score-only ground truth, distinct from the estimated keyTimeline above — the model may note agreement/disagreement between the two, but isn't required to. */
+function summarizeNotatedKey(notatedKeyTimeline: NotatedKeyPoint[], durationSec: number): string {
+  const segments = collapseKeySegments(notatedKeyTimeline, durationSec, (p) => p, () => false);
+  const lines = segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`);
+  return `記譜上の調号(楽譜に実際に記譜された調、推定ではない): ${lines.join(", ")}`;
+}
+
+function summarizeFourierTimeline(fourierTimeline: FourierTimelinePoint[]): string {
+  if (fourierTimeline.length === 0) return "ダイアトニック度: データなし";
+  const x5Values = fourierTimeline.map((p) => p.coefficients.find((c) => c.k === 5)?.normalizedMagnitude ?? 0);
+  const avg = x5Values.reduce((s, v) => s + v, 0) / x5Values.length;
+  return (
+    `ダイアトニック度(調性らしさ、フーリエ係数|X5|の正規化値、0-1、高いほど長短音階に近い): ` +
+    `平均${avg.toFixed(2)}、最小${Math.min(...x5Values).toFixed(2)}、最大${Math.max(...x5Values).toFixed(2)}`
+  );
 }
 
 function summarizeTonnetzTrajectory(tonnetzTrajectory: TonnetzTimelinePoint[]): string {
   if (tonnetzTrajectory.length === 0) return "和音進行: データなし";
   const sequence = tonnetzTrajectory.map((p) => chordLabel(p.chord)).join(" → ");
   return `検出された和音の並び: ${sequence}`;
+}
+
+/** Discrete key-change pivot points, distinct from the continuous keyTimeline above. */
+function summarizeModulations(modulations: ModulationEvent[]): string {
+  const RELATIONSHIP_LABEL: Record<ModulationEvent["relationship"], string> = {
+    relativeMajorMinor: "平行調",
+    parallelMajorMinor: "同主調",
+    dominant: "属調",
+    subdominant: "下属調",
+    other: "その他の関係",
+  };
+  const lines = modulations.map(
+    (m) =>
+      `- ${formatTime(m.time)}: ${modulationLabel(m)}(${RELATIONSHIP_LABEL[m.relationship]})${m.lowConfidence ? "(確信度低)" : ""}`
+  );
+  return ["転調(調の推定タイムラインから検出した離散的な転換点):", ...lines].join("\n");
+}
+
+function summarizeChordFunctions(chordFunctions: ChordFunctionPoint[]): string {
+  const sequence = chordFunctions.map((p) => p.romanNumeral).join(" → ");
+  return (
+    "検出された和音の機能(その時点の推定キーに対するローマ数字表記、簡易的な指標。" +
+    `長三和音・短三和音の区別のみに基づくため減三和音等は区別されない): ${sequence}`
+  );
+}
+
+function summarizeScoreWarnings(scoreWarnings: ScoreConsistencyWarning[]): string {
+  const lines = scoreWarnings.map((w) => `- ${w.message}`);
+  return ["複数ファイルの結合における整合性の警告(自動検出):", ...lines].join("\n");
 }
 
 /**
@@ -67,6 +107,13 @@ function summarizeAestheticMetrics(metrics: AestheticMetrics): string {
     `- 予測可能性(シャノンの条件付きエントロピーH(Xₙ₊₁|Xₙ)、bit、最大log₂12≈${predictability.maxEntropyBits.toFixed(2)}、値が小さいほど次の音が予測しやすい): ${predictability.conditionalEntropyBits.toFixed(2)}`,
     `- 旋律の自己相似性(自己相関、1に近いほど反復的): ラグ${selfSimilarity.bestLagNotes}音で相関${selfSimilarity.correlation.toFixed(2)}`,
   ].join("\n");
+}
+
+function summarizeMelodicRange(range: MelodicRange): string {
+  return (
+    `旋律の音域: 最低${midiToNoteName(range.minMidi)}、最高${midiToNoteName(range.maxMidi)}` +
+    `(${range.rangeSemitones}半音)、平均音高${midiToNoteName(Math.round(range.meanMidi))}`
+  );
 }
 
 const TREND_LABEL: Record<DynamicsSummary["trend"], string> = {
@@ -113,6 +160,21 @@ function summarizeSongArc(sections: ArcSection[]): string {
     );
   });
   return ["曲の推移(区間ごと、序盤から終盤への変化):", ...lines].join("\n");
+}
+
+function summarizeClimax(climax: ClimaxEstimate): string {
+  return (
+    `山場の仮説(強弱・和声的テンション・覚醒度を組み合わせた指標が最大となる区間): ` +
+    `第${climax.sectionIndex + 1}区間(${formatTime(climax.startSec)}-${formatTime(climax.endSec)})`
+  );
+}
+
+function summarizeSongForm(recurrence: RecurrenceMatch): string {
+  return (
+    `曲の構成の仮説: ${formatTime(recurrence.a.startSec)}-${formatTime(recurrence.a.endSec)}の音使いが` +
+    `${formatTime(recurrence.b.startSec)}-${formatTime(recurrence.b.endSec)}にも類似度${recurrence.similarity.toFixed(2)}で再登場しており、` +
+    "同じセクションの繰り返しである可能性があります"
+  );
 }
 
 function summarizeMeter(meter: MeterAnalysisResult): string {
@@ -167,38 +229,61 @@ function summarizeIncludedParts(includedParts: string[]): string {
   return `解析対象パート: ${includedParts.join("、")}(この曲のうち、上記のパートのみを対象に解析しています)`;
 }
 
+export interface AnalysisFactsInput {
+  label: string;
+  durationSec: number;
+  keyTimeline: KeyTimelinePoint[];
+  fourierTimeline: FourierTimelinePoint[];
+  tonnetzTrajectory: TonnetzTimelinePoint[];
+  metrics: AestheticMetrics;
+  mood: MoodFacts;
+  arc: ArcSection[];
+  meter?: MeterAnalysisResult | null;
+  counterpoint?: CounterpointAnalysis | null;
+  includedParts?: string[];
+  notatedKeyTimeline?: NotatedKeyPoint[];
+  scoreWarnings?: ScoreConsistencyWarning[];
+  melodicRange?: MelodicRange | null;
+  climax?: ClimaxEstimate | null;
+  modulations?: ModulationEvent[];
+  chordFunctions?: ChordFunctionPoint[];
+  songForm?: RecurrenceMatch | null;
+}
+
 /**
  * Builds a compact, rounded, plain-text summary of already-computed analysis
  * facts — no raw arrays, no room for the LLM to invent numbers. This is the
  * only input the /api/summarize route hands to Claude, so the model narrates
  * verified facts rather than guessing.
  *
- * meter/counterpoint are optional and, when omitted or null, contribute
- * nothing to the output — they're only ever available for score-imported
- * input (bar/part data audio transcription doesn't have), so omitting the
- * section entirely avoids implying "checked, found nothing" when actually
- * "this input type has no such data at all".
+ * Every optional field is omitted entirely (not "checked, found nothing")
+ * when absent/empty/null — most of them are score-import-only or depend on
+ * enough signal to say anything (e.g. a climax needs >= 2 arc sections), so
+ * omission means "not applicable to this input", not "nothing found".
  */
-export function buildAnalysisFacts(
-  label: string,
-  durationSec: number,
-  keyTimeline: KeyTimelinePoint[],
-  tonnetzTrajectory: TonnetzTimelinePoint[],
-  metrics: AestheticMetrics,
-  mood: MoodFacts,
-  arc: ArcSection[],
-  meter?: MeterAnalysisResult | null,
-  counterpoint?: CounterpointAnalysis | null,
-  includedParts?: string[]
-): string {
+export function buildAnalysisFacts(input: AnalysisFactsInput): string {
+  const {
+    label, durationSec, keyTimeline, fourierTimeline, tonnetzTrajectory, metrics, mood, arc,
+    meter, counterpoint, includedParts, notatedKeyTimeline, scoreWarnings, melodicRange,
+    climax, modulations, chordFunctions, songForm,
+  } = input;
+
   return [
     `曲: ${label}(長さ ${formatTime(durationSec)})`,
     ...(includedParts && includedParts.length > 0 ? [summarizeIncludedParts(includedParts)] : []),
+    ...(scoreWarnings && scoreWarnings.length > 0 ? [summarizeScoreWarnings(scoreWarnings)] : []),
+    ...(notatedKeyTimeline && notatedKeyTimeline.length > 0 ? [summarizeNotatedKey(notatedKeyTimeline, durationSec)] : []),
     summarizeKeyTimeline(keyTimeline, durationSec),
+    ...(modulations && modulations.length > 0 ? [summarizeModulations(modulations)] : []),
+    summarizeFourierTimeline(fourierTimeline),
     summarizeTonnetzTrajectory(tonnetzTrajectory),
+    ...(chordFunctions && chordFunctions.length > 0 ? [summarizeChordFunctions(chordFunctions)] : []),
     summarizeAestheticMetrics(metrics),
+    ...(melodicRange ? [summarizeMelodicRange(melodicRange)] : []),
     summarizeMood(mood),
     summarizeSongArc(arc),
+    ...(climax ? [summarizeClimax(climax)] : []),
+    ...(songForm ? [summarizeSongForm(songForm)] : []),
     ...(meter ? [summarizeMeter(meter)] : []),
     ...(counterpoint ? [summarizeCounterpoint(counterpoint)] : []),
   ].join("\n");

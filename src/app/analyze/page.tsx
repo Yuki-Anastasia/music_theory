@@ -8,7 +8,12 @@ import StaffFragment from "@/components/decoration/StaffFragment";
 import TonnetzFragment from "@/components/decoration/TonnetzFragment";
 import type { ScoreAnalysis, NotatedKeyPoint, NotatedChordPoint, MeterPoint } from "@/lib/score/musicXml";
 import type { ScoreConsistencyWarning } from "@/lib/score/scoreConsistency";
-import { keyLabel } from "@/lib/theory/keyProfile";
+import { collapseKeySegments } from "@/lib/theory/keyProfile";
+import { melodicRange } from "@/lib/theory/melodicRange";
+import { estimateClimax } from "@/lib/theory/songArc";
+import { detectModulations } from "@/lib/theory/modulation";
+import { analyzeChordFunctions } from "@/lib/theory/chordFunction";
+import { findStrongestRecurrence } from "@/lib/theory/songForm";
 import OverviewTab from "@/components/analyze/OverviewTab";
 import TonalityTab from "@/components/analyze/TonalityTab";
 import HarmonyTab from "@/components/analyze/HarmonyTab";
@@ -56,14 +61,7 @@ function formatTime(seconds: number): string {
 
 /** Collapses consecutive identical notated keys into labeled time ranges, e.g. "0:00-1:20 ト長調". */
 function formatNotatedKeySegments(timeline: NotatedKeyPoint[], durationSec: number): string {
-  const segments: { start: number; end: number; label: string }[] = [];
-  for (const point of timeline) {
-    const label = keyLabel(point);
-    const last = segments[segments.length - 1];
-    if (last && last.label === label) continue;
-    segments.push({ start: point.time, end: durationSec, label });
-  }
-  for (let i = 0; i < segments.length - 1; i++) segments[i].end = segments[i + 1].start;
+  const segments = collapseKeySegments(timeline, durationSec, (p) => p, () => false);
   return segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`).join(", ");
 }
 
@@ -178,6 +176,7 @@ export default function AnalyzeSongPage() {
     label,
     durationSec: maxTime,
     keyTimeline,
+    fourierTimeline,
     tonnetzTrajectory,
     metrics: aestheticMetrics,
     mood,
@@ -185,6 +184,13 @@ export default function AnalyzeSongPage() {
     meter: meterAnalysis,
     counterpoint: counterpointAnalysis,
     includedParts,
+    notatedKeyTimeline,
+    scoreWarnings,
+    melodicRange: melodicRangeStats,
+    climax,
+    modulations,
+    chordFunctions,
+    songForm,
     locale,
   });
 
@@ -292,6 +298,14 @@ export default function AnalyzeSongPage() {
     mood && voices
       ? estimateSongArc(events, voices.melody, tonnetzTrajectory, keyTimeline, mood.tempo.bpm, maxTime)
       : [];
+  const climax = arc.length > 0 ? estimateClimax(arc) : null;
+  const modulations = keyTimeline.length > 0 ? detectModulations(keyTimeline, maxTime) : [];
+  const chordFunctions =
+    tonnetzTrajectory.length > 0 && keyTimeline.length > 0
+      ? analyzeChordFunctions(tonnetzTrajectory, keyTimeline)
+      : [];
+  const melodicRangeStats = voices ? melodicRange(voices.melody) : null;
+  const songForm = events.length > 0 ? findStrongestRecurrence(events, maxTime) : null;
 
   // Both are score-import-only: meterTimeline/scorePartNames stay empty for
   // audio-transcribed input (see handleReady above), so these naturally

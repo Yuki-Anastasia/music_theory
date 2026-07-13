@@ -30,3 +30,13 @@ export function estimateKeyTimeline(
 
   return points;
 }
+
+/** The key estimate active at a given time — the last window whose start <= time. Mirrors meterAnalysis.ts's findGridIndex forward-scan pattern for an ascending time-ordered series. Null if time precedes the first window or the timeline is empty. */
+export function keyActiveAt(keyTimeline: KeyTimelinePoint[], time: number): KeyEstimate | null {
+  let result: KeyEstimate | null = null;
+  for (const point of keyTimeline) {
+    if (point.time <= time) result = point.key;
+    else break;
+  }
+  return result;
+}

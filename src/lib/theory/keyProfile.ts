@@ -71,3 +71,51 @@ export function keyLabel(candidate: Pick<KeyCandidate, "tonic" | "mode">): strin
   const name = PITCH_CLASS_NAMES[candidate.tonic];
   return candidate.mode === "major" ? `${name}` : `${name}m`;
 }
+
+export interface KeySegment {
+  start: number;
+  end: number;
+  tonic: number;
+  mode: Mode;
+  label: string;
+  /** Caller-defined per-point flag (e.g. "low confidence" for an estimated key) — true if any point folded into this segment was flagged. */
+  flagged: boolean;
+}
+
+/**
+ * Collapses a time-ordered sequence of points into contiguous [start, end)
+ * segments wherever keyOf(point) resolves to the same label, extending each
+ * segment's end to the next segment's start (or durationSec for the last).
+ * Generic over point shape so both a KeyTimelinePoint (estimated key,
+ * keyOf: p => p.key) and a NotatedKeyPoint (keyOf: p => p) can share this
+ * loop instead of each re-deriving it.
+ */
+export function collapseKeySegments<P extends { time: number }>(
+  points: P[],
+  durationSec: number,
+  keyOf: (p: P) => { tonic: number; mode: Mode },
+  flagOf?: (p: P) => boolean
+): KeySegment[] {
+  const segments: KeySegment[] = [];
+  for (const point of points) {
+    const key = keyOf(point);
+    const label = keyLabel(key);
+    const last = segments[segments.length - 1];
+    if (last && last.label === label) {
+      last.flagged = last.flagged || (flagOf?.(point) ?? false);
+    } else {
+      segments.push({
+        start: point.time,
+        end: point.time,
+        tonic: key.tonic,
+        mode: key.mode,
+        label,
+        flagged: flagOf?.(point) ?? false,
+      });
+    }
+  }
+  for (let i = 0; i < segments.length; i++) {
+    segments[i].end = i + 1 < segments.length ? segments[i + 1].start : durationSec;
+  }
+  return segments;
+}

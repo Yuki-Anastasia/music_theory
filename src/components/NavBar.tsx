@@ -21,6 +21,7 @@ export default function NavBar() {
     { href: "/", label: t.nav.home },
     { href: "/analyze", label: t.nav.analyze },
     { href: "/live", label: t.nav.live },
+    { href: "/about", label: t.nav.about },
   ] as const;
 
   return (

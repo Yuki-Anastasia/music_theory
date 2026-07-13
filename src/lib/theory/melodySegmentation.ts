@@ -10,13 +10,14 @@ const PEAK_NEIGHBORHOOD = 2;
 // arc stays scannable.
 const MAX_BOUNDARIES = 5;
 
-function normalizedHistogram(events: NormalizedNoteEvent[], start: number, end: number): number[] {
+/** Exported for songForm.ts, which reuses the same normalization to compare far-apart windows rather than only-adjacent ones. */
+export function normalizedHistogram(events: NormalizedNoteEvent[], start: number, end: number): number[] {
   const histogram = pitchClassHistogram(events, start, end);
   const total = histogram.reduce((s, v) => s + v, 0);
   return total === 0 ? histogram : histogram.map((v) => v / total);
 }
 
-function euclideanDistance(a: number[], b: number[]): number {
+export function euclideanDistance(a: number[], b: number[]): number {
   return Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
 }
 

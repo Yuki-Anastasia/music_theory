@@ -5,6 +5,7 @@ import {
   consonanceOfHistogram,
   ConsonanceEstimate,
   harmonicTensionOfTrajectory,
+  HarmonicTensionEstimate,
   melodicSelfSimilarity,
 } from "./aestheticMetrics";
 import { dynamicsSummary, DynamicsSummary } from "./dynamicsAnalysis";
@@ -16,6 +17,7 @@ export interface ArcSection {
   startSec: number;
   endSec: number;
   consonance: ConsonanceEstimate;
+  harmonicTension: HarmonicTensionEstimate;
   dynamics: DynamicsSummary;
   valence: number;
   arousal: number;
@@ -68,8 +70,42 @@ export function estimateSongArc(
     const valence = estimateValence(sectionKeyPoints, consonance.consonanceScore, harmonicTension);
     const arousal = estimateArousal(tempoBpm, dynamics, entropy.entropyBits, harmonicTension, selfSimilarity);
 
-    sections.push({ startSec, endSec, consonance, dynamics, valence, arousal });
+    sections.push({ startSec, endSec, consonance, harmonicTension, dynamics, valence, arousal });
   }
 
   return sections;
+}
+
+export interface ClimaxEstimate {
+  sectionIndex: number;
+  startSec: number;
+  endSec: number;
+  /** Composite ranking score, unitless — for picking the argmax section only, not a calibrated "intensity" value. */
+  score: number;
+}
+
+function minMaxNormalize(values: number[]): number[] {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return max === min ? values.map(() => 0) : values.map((v) => (v - min) / (max - min));
+}
+
+/**
+ * Argmax across sections of an equal-weight composite of loudness, harmonic
+ * tension, and arousal — each min-max normalized across the song's own
+ * sections (scale-invariant per song), summed, then argmax'd. Needs >= 2
+ * sections since a relative "peak" is undefined with nothing to contrast
+ * against, per the project's don't-assert-without-contrast convention.
+ */
+export function estimateClimax(sections: ArcSection[]): ClimaxEstimate | null {
+  if (sections.length < 2) return null;
+
+  const loudness = minMaxNormalize(sections.map((s) => s.dynamics.averageLoudness));
+  const tension = minMaxNormalize(sections.map((s) => s.harmonicTension.averageVoiceLeadingDistance));
+  const arousal = minMaxNormalize(sections.map((s) => s.arousal));
+  const scores = sections.map((_, i) => loudness[i] + tension[i] + arousal[i]);
+
+  const bestIndex = scores.indexOf(Math.max(...scores));
+  const best = sections[bestIndex];
+  return { sectionIndex: bestIndex, startSec: best.startSec, endSec: best.endSec, score: scores[bestIndex] };
 }
