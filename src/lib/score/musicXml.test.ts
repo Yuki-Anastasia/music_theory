@@ -305,6 +305,47 @@ describe("parseMusicXmlString", () => {
     ]);
   });
 
+  it("returns null notatedTempoBpm when no <sound tempo> is present", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+        </measure>
+      </part>`);
+    expect(parseMusicXmlString(xml).notatedTempoBpm).toBeNull();
+  });
+
+  it("reads notatedTempoBpm from <sound tempo>", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <direction><sound tempo="140"/></direction>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+        </measure>
+      </part>`);
+    expect(parseMusicXmlString(xml).notatedTempoBpm).toBe(140);
+  });
+
+  it("collects <unpitched> percussion notes as bare onset times, not NormalizedNoteEvents", () => {
+    const xml = scorePartwise(`
+      <part id="P1">
+        <measure number="1">
+          <attributes><divisions>1</divisions></attributes>
+          <note><unpitched><display-step>F</display-step><display-octave>5</display-octave></unpitched><duration>1</duration></note>
+          <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration></note>
+          <note><unpitched><display-step>C</display-step><display-octave>5</display-octave></unpitched><duration>1</duration></note>
+        </measure>
+      </part>`);
+
+    const { events, percussionOnsets } = parseMusicXmlString(xml);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ time: 0.5, midiNote: 60 });
+    expect(percussionOnsets).toEqual([0, 1]);
+  });
+
   it("rejects score-timewise documents", () => {
     const xml = `<?xml version="1.0"?><score-timewise version="4.0"></score-timewise>`;
     expect(() => parseMusicXmlString(xml)).toThrow(/score-partwise/);

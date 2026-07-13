@@ -16,6 +16,8 @@ export interface ExpressionTabData {
   arc: ArcSection[];
   /** Meter/syncopation analysis — score imports only (null for audio-transcribed songs, which have no bar data). */
   meter: MeterAnalysisResult | null;
+  /** How many percussion-track onsets fed into the syncopation figure above — drums carry no pitch, so they never appear as a selectable part, but their timing still informs the beat. 0 when the score has no percussion track or the input is audio-transcribed. */
+  percussionOnsetCount: number;
 }
 
 function formatTime(seconds: number): string {
@@ -30,7 +32,7 @@ function formatTime(seconds: number): string {
  * than as unrelated dashboard statistics.
  */
 export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
-  const { tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter } = data;
+  const { tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter, percussionOnsetCount } = data;
 
   return (
     <div className="flex flex-col gap-10">
@@ -80,7 +82,11 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
               theory="Longuet-Higgins & Lee (1984) のシンコペーション概念を単純化"
               formula="Σ max(0, strongerWeight-ownWeight) / (pairCount×weightRange)"
               value={`${meter.syncopation.normalizedScore.toFixed(2)}(0〜1)`}
-              note="値が大きいほど、強拍を避けて弱拍・裏拍に音を置く傾向"
+              note={
+                percussionOnsetCount > 0
+                  ? `値が大きいほど、強拍を避けて弱拍・裏拍に音を置く傾向。ドラムパートのオンセット(${percussionOnsetCount}個)も拍節解析に含めています。`
+                  : "値が大きいほど、強拍を避けて弱拍・裏拍に音を置く傾向"
+              }
             />
             {meter.harmonicRhythmAlignment && (
               <MetricCard

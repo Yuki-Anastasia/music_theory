@@ -170,4 +170,27 @@ describe("buildAnalysisFacts", () => {
     const facts = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
     expect(facts).not.toContain("対位法");
   });
+
+  it("states which parts the analysis covers when includedParts is given", () => {
+    const facts = buildAnalysisFacts(
+      "song",
+      10,
+      [],
+      [],
+      EMPTY_METRICS,
+      EMPTY_MOOD,
+      EMPTY_ARC,
+      null,
+      null,
+      ["Guitar", "Bass"]
+    );
+    expect(facts).toContain("解析対象パート: Guitar、Bass");
+  });
+
+  it("omits the included-parts line when includedParts is empty or omitted", () => {
+    const withEmpty = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC, null, null, []);
+    const withOmitted = buildAnalysisFacts("song", 10, [], [], EMPTY_METRICS, EMPTY_MOOD, EMPTY_ARC);
+    expect(withEmpty).not.toContain("解析対象パート");
+    expect(withOmitted).not.toContain("解析対象パート");
+  });
 });

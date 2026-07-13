@@ -35,6 +35,8 @@ function analysis(events: NormalizedNoteEvent[], overrides: Partial<ScoreAnalysi
     notatedChordTimeline: [],
     partNames: [],
     meterTimeline: [],
+    notatedTempoBpm: null,
+    percussionOnsets: [],
     ...overrides,
   };
 }
@@ -63,17 +65,44 @@ describe("checkConsistency", () => {
     expect(warnings.some((w) => w.type === "duration")).toBe(false);
   });
 
-  it("flags a large tempo mismatch when both estimates are high-confidence", () => {
+  it("flags a large tempo mismatch via the estimated-tempo fallback when neither file has a notated tempo", () => {
     const fast = analysis(steadyBeat(150));
     const slow = analysis(steadyBeat(90));
     const warnings = checkConsistency([file("Guitar.gp5", fast), file("Bass.gp5", slow)]);
     expect(warnings.some((w) => w.type === "tempo")).toBe(true);
   });
 
-  it("does not flag tempo when either file's estimate is low-confidence", () => {
+  it("does not flag tempo via the estimated fallback when either file's estimate is low-confidence", () => {
     const fast = analysis(steadyBeat(150));
     const unreliable = analysis([note(0), note(0.3), note(0.9), note(2.1)]); // irregular, low confidence
     const warnings = checkConsistency([file("Guitar.gp5", fast), file("Bass.gp5", unreliable)]);
+    expect(warnings.some((w) => w.type === "tempo")).toBe(false);
+  });
+
+  it("prefers the notated tempo over re-estimating it from the note pattern", () => {
+    // Both files have a steady 150bpm onset pattern (which estimateTempo
+    // would recover just fine), but notatedTempoBpm says otherwise for one
+    // of them — the notated value must win, exactly matching "follow what's
+    // written" rather than what the notes happen to look like.
+    const a = analysis(steadyBeat(150), { notatedTempoBpm: 150 });
+    const b = analysis(steadyBeat(150), { notatedTempoBpm: 80 });
+    const warnings = checkConsistency([file("Guitar.gp5", a), file("Bass.gp5", b)]);
+    expect(warnings.some((w) => w.type === "tempo")).toBe(true);
+  });
+
+  it("flags a notated-tempo mismatch even with too few notes for a reliable estimate", () => {
+    // Only 2 notes each — estimateTempo would refuse to call this "high"
+    // confidence, but a notated tempo doesn't need that signal at all.
+    const a = analysis([note(0), note(1)], { notatedTempoBpm: 140 });
+    const b = analysis([note(0), note(1)], { notatedTempoBpm: 90 });
+    const warnings = checkConsistency([file("Guitar.gp5", a), file("Bass.gp5", b)]);
+    expect(warnings.some((w) => w.type === "tempo")).toBe(true);
+  });
+
+  it("does not flag tempo when notated values agree, regardless of what the note pattern looks like", () => {
+    const a = analysis(steadyBeat(150), { notatedTempoBpm: 120 });
+    const b = analysis([note(0), note(1)], { notatedTempoBpm: 120 });
+    const warnings = checkConsistency([file("Guitar.gp5", a), file("Bass.gp5", b)]);
     expect(warnings.some((w) => w.type === "tempo")).toBe(false);
   });
 

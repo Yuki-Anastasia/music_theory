@@ -66,6 +66,10 @@ export interface ScoreAnalysis {
   partNames: string[];
   /** One entry per bar (time signature carried forward from the last <attributes><time>), first part only — staves share one time signature. Empty when the score never specifies one explicitly and has no bars. */
   meterTimeline: MeterPoint[];
+  /** The tempo as actually notated (<sound tempo="...">), or null when the score never specifies one — distinct from the internal default used to lay out the time axis, so callers can tell "no marking" from "genuinely 120bpm". */
+  notatedTempoBpm: number | null;
+  /** Onset times (seconds) of unpitched percussion notes (<unpitched>), across all parts. No pitch/duration — a drum hit is a beat indicator, not a pitch, so it's kept out of `events` entirely to avoid corrupting pitch-based analysis, but still carries real rhythmic information. */
+  percussionOnsets: number[];
 }
 
 /**
@@ -141,7 +145,8 @@ export function parseMusicXmlString(xml: string): ScoreAnalysis {
     throw new Error("score-partwise形式のMusicXMLのみ対応しています(score-timewiseは未対応です)");
   }
 
-  const tempoBpm = findTempoBpm(doc);
+  const notatedTempoBpm = findNotatedTempoBpm(doc);
+  const tempoBpm = notatedTempoBpm ?? DEFAULT_TEMPO_BPM;
 
   const partNameById = new Map<string, string>();
   for (const scorePart of Array.from(doc.getElementsByTagName("score-part"))) {
@@ -155,6 +160,7 @@ export function parseMusicXmlString(xml: string): ScoreAnalysis {
   const events: NormalizedNoteEvent[] = [];
   const notatedChordTimeline: NotatedChordPoint[] = [];
   const partNames: string[] = [];
+  const percussionOnsets: number[] = [];
   let notatedKeyTimeline: NotatedKeyPoint[] = [];
   let meterTimeline: MeterPoint[] = [];
 
@@ -165,6 +171,7 @@ export function parseMusicXmlString(xml: string): ScoreAnalysis {
     const result = parsePart(part, tempoBpm, partLabel);
     events.push(...result.events);
     notatedChordTimeline.push(...result.harmonyMarks);
+    percussionOnsets.push(...result.percussionOnsets);
     if (index === 0) {
       notatedKeyTimeline = result.keyChanges; // staves share one key signature; avoid duplicating per part
       meterTimeline = result.meterChanges; // staves share one time signature; avoid duplicating per part
@@ -173,14 +180,16 @@ export function parseMusicXmlString(xml: string): ScoreAnalysis {
 
   events.sort((a, b) => a.time - b.time);
   notatedChordTimeline.sort((a, b) => a.time - b.time);
+  percussionOnsets.sort((a, b) => a - b);
 
-  return { events, notatedKeyTimeline, notatedChordTimeline, partNames, meterTimeline };
+  return { events, notatedKeyTimeline, notatedChordTimeline, partNames, meterTimeline, notatedTempoBpm, percussionOnsets };
 }
 
-function findTempoBpm(doc: Document): number {
+/** Returns the tempo actually notated in <sound tempo="...">, or null when the document never specifies one — no defaulting here, unlike the internal time-axis calculation. */
+function findNotatedTempoBpm(doc: Document): number | null {
   const soundEl = Array.from(doc.getElementsByTagName("sound")).find((el) => el.hasAttribute("tempo"));
   const tempo = soundEl ? parseFloat(soundEl.getAttribute("tempo") ?? "") : NaN;
-  return Number.isFinite(tempo) && tempo > 0 ? tempo : DEFAULT_TEMPO_BPM;
+  return Number.isFinite(tempo) && tempo > 0 ? tempo : null;
 }
 
 function childNumber(el: Element, tagName: string): number {
@@ -222,6 +231,7 @@ interface PartParseResult {
   keyChanges: NotatedKeyPoint[];
   harmonyMarks: NotatedChordPoint[];
   meterChanges: MeterPoint[];
+  percussionOnsets: number[];
 }
 
 /**
@@ -237,6 +247,7 @@ function parsePart(part: Element, tempoBpm: number, partLabel: string | undefine
   const keyChanges: NotatedKeyPoint[] = [];
   const harmonyMarks: NotatedChordPoint[] = [];
   const meterChanges: MeterPoint[] = [];
+  const percussionOnsets: number[] = [];
   const measures = Array.from(part.children).filter((el) => el.tagName === "measure");
 
   let divisions = 1; // ticks per quarter note; redefined by <attributes><divisions>
@@ -345,6 +356,13 @@ function parsePart(part: Element, tempoBpm: number, partLabel: string | undefine
           events.push(event);
           if (tieStart) openTies.set(midiNote, event);
         }
+      } else if (child.getElementsByTagName("unpitched")[0]) {
+        // Unpitched percussion (MusicXML's spec-correct way to notate drum
+        // parts) has no meaningful pitch, only rhythm — kept as a bare
+        // onset time rather than a NormalizedNoteEvent, so it can inform
+        // beat/syncopation analysis without ever entering pitch-based
+        // analysis (key, chords, counterpoint).
+        percussionOnsets.push(onsetSeconds);
       }
 
       previousOnsetSeconds = onsetSeconds;
@@ -354,5 +372,5 @@ function parsePart(part: Element, tempoBpm: number, partLabel: string | undefine
     meterChanges.push({ time: measureStartSeconds, numerator: timeSigNumerator, denominator: timeSigDenominator });
   }
 
-  return { events, keyChanges, harmonyMarks, meterChanges };
+  return { events, keyChanges, harmonyMarks, meterChanges, percussionOnsets };
 }

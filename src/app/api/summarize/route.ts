@@ -18,6 +18,7 @@ interface SummarizeRequestBody {
   arc: ArcSection[];
   meter?: MeterAnalysisResult | null;
   counterpoint?: CounterpointAnalysis | null;
+  includedParts?: string[];
 }
 
 const SYSTEM_PROMPT =
@@ -42,6 +43,10 @@ const SYSTEM_PROMPT =
   "明確にしてください。" +
   "事実に「拍子・シンコペーション分析」や「複声部の対位法チェック」が含まれている場合は、それらも第2部の中で" +
   "他の指標と同様に扱ってください(理論名・数値・聴取体験を結びつける)。含まれていない場合は無理に触れる必要はありません。" +
+  "事実の冒頭に「解析対象パート」が示されている場合、それはこの解析が曲全体ではなく特定の楽器パートのみを対象にしていることを" +
+  "意味します。曲やアンサンブル全体について語っているかのような書き方は避け、「ギターパートでは」のように、" +
+  "どのパートについて述べているかが伝わる形で説明してください。示されていない場合(単一楽器の楽譜、または音声解析)は" +
+  "通常どおり曲全体として説明して構いません。" +
   "\n\n" +
   "強弱の傾向や感情円環モデル(valence/arousal)による推定は「曲の推移」の区間ごとの値としてのみ与えられています。" +
   "曲全体の単一の強弱・感情値は存在しないので、区間ごとの変化として説明してください。" +
@@ -62,7 +67,8 @@ function isValidBody(body: unknown): body is SummarizeRequestBody {
     b.mood !== null &&
     Array.isArray(b.arc) &&
     (b.meter === undefined || b.meter === null || typeof b.meter === "object") &&
-    (b.counterpoint === undefined || b.counterpoint === null || typeof b.counterpoint === "object")
+    (b.counterpoint === undefined || b.counterpoint === null || typeof b.counterpoint === "object") &&
+    (b.includedParts === undefined || Array.isArray(b.includedParts))
   );
 }
 
@@ -94,7 +100,8 @@ export async function POST(req: Request) {
     body.mood,
     body.arc,
     body.meter,
-    body.counterpoint
+    body.counterpoint,
+    body.includedParts
   );
 
   try {

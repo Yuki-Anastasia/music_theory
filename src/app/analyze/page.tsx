@@ -14,6 +14,7 @@ import TonalityTab from "@/components/analyze/TonalityTab";
 import HarmonyTab from "@/components/analyze/HarmonyTab";
 import ExpressionTab from "@/components/analyze/ExpressionTab";
 import AIExplanationTab, { SummaryStatus } from "@/components/analyze/AIExplanationTab";
+import PartSelector from "@/components/analyze/PartSelector";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
 import { notesToNormalizedEvents, pitchClassHistogram, NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
 import { estimateKeyTimeline } from "@/lib/theory/keyTimeline";
@@ -85,7 +86,11 @@ export default function AnalyzeSongPage() {
   const [label, setLabel] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [events, setEvents] = useState<NormalizedNoteEvent[]>([]);
+  // Raw, unfiltered events from the last parse (audio transcription or
+  // score import). The `events` used everywhere below is derived from this
+  // plus selectedParts, so a part-selection change recomputes every
+  // downstream analysis without touching any theory module.
+  const [parsedEvents, setParsedEvents] = useState<NormalizedNoteEvent[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [summaryStatus, setSummaryStatus] = useState<SummaryStatus>("idle");
   const [summaryText, setSummaryText] = useState<string | null>(null);
@@ -96,6 +101,10 @@ export default function AnalyzeSongPage() {
   const [meterTimeline, setMeterTimeline] = useState<MeterPoint[]>([]);
   const [scorePartNames, setScorePartNames] = useState<string[]>([]);
   const [scoreWarnings, setScoreWarnings] = useState<ScoreConsistencyWarning[]>([]);
+  // Onset times of unpitched percussion notes — never part of `events`/PartSelector (no pitch, not a selectable "part"), but fed into the meter/syncopation analysis as a beat indicator.
+  const [percussionOnsets, setPercussionOnsets] = useState<number[]>([]);
+  // Which of scorePartNames are currently included in the analysis; empty/unused for audio-transcribed input (no partLabel there).
+  const [selectedParts, setSelectedParts] = useState<Set<string>>(new Set());
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -108,13 +117,15 @@ export default function AnalyzeSongPage() {
     setMeterTimeline([]);
     setScorePartNames([]);
     setScoreWarnings([]);
+    setSelectedParts(new Set());
+    setPercussionOnsets([]);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
         setProgress(fraction);
         setElapsedMs(ms);
       });
-      setEvents(notesToNormalizedEvents(notes));
+      setParsedEvents(notesToNormalizedEvents(notes));
       setStatus("done");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -126,12 +137,23 @@ export default function AnalyzeSongPage() {
     setStatus("done");
     setLabel(sourceLabel);
     setErrorMessage(null);
-    setEvents(analysis.events);
+    setParsedEvents(analysis.events);
     setNotatedKeyTimeline(analysis.notatedKeyTimeline);
     setNotatedChordTimeline(analysis.notatedChordTimeline);
     setMeterTimeline(analysis.meterTimeline);
     setScorePartNames(analysis.partNames);
     setScoreWarnings(warnings);
+    setSelectedParts(new Set(analysis.partNames)); // all parts included by default
+    setPercussionOnsets(analysis.percussionOnsets);
+  };
+
+  const togglePart = (name: string) => {
+    setSelectedParts((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   };
 
   const handleGenerateMarkov = () => {
@@ -157,6 +179,7 @@ export default function AnalyzeSongPage() {
           arc,
           meter: meterAnalysis,
           counterpoint: counterpointAnalysis,
+          includedParts,
         }),
       });
       const data = await res.json();
@@ -169,7 +192,20 @@ export default function AnalyzeSongPage() {
     }
   };
 
-  const maxTime = events.length > 0 ? Math.max(...events.map((e) => e.time + e.durationSeconds)) : 0;
+  // Filters raw parsed events down to the currently-selected parts. Only
+  // applies when scorePartNames is non-empty (score-import path); audio
+  // transcription never sets partLabel, so this is a no-op passthrough
+  // there. Every analysis below reads this filtered `events`, so toggling
+  // a part in PartSelector recomputes the entire page.
+  const events =
+    scorePartNames.length > 0
+      ? parsedEvents.filter((e) => !e.partLabel || selectedParts.has(e.partLabel))
+      : parsedEvents;
+
+  const maxTime =
+    events.length > 0 || percussionOnsets.length > 0
+      ? Math.max(0, ...events.map((e) => e.time + e.durationSeconds), ...percussionOnsets)
+      : 0;
   const histogram = events.length > 0 ? pitchClassHistogram(events, 0, maxTime) : [];
   const histogramMax = Math.max(1, ...histogram);
   const keyTimeline = events.length > 0 ? estimateKeyTimeline(events) : [];
@@ -217,8 +253,8 @@ export default function AnalyzeSongPage() {
   // audio-transcribed input (see handleReady above), so these naturally
   // resolve to null there.
   const meterAnalysis =
-    meterTimeline.length > 0 && events.length > 0
-      ? analyzeMeter(events, meterTimeline, maxTime, tonnetzTrajectory, notatedChordTimeline)
+    meterTimeline.length > 0 && (events.length > 0 || percussionOnsets.length > 0)
+      ? analyzeMeter(events, meterTimeline, maxTime, tonnetzTrajectory, notatedChordTimeline, percussionOnsets)
       : null;
   const counterpointAnalysis = scorePartNames.length >= 2 ? analyzeCounterpoint(events, scorePartNames) : null;
 
@@ -230,6 +266,11 @@ export default function AnalyzeSongPage() {
       return counts;
     }, {})
   );
+  // The subset of scorePartNames actually selected — passed to the AI
+  // summary so it names which instrument(s) the analysis covers, in case
+  // the user deselected some parts (see PartSelector).
+  const includedParts = scorePartNames.filter((name) => selectedParts.has(name));
+
   const notatedKeyText = notatedKeyTimeline.length > 0 ? formatNotatedKeySegments(notatedKeyTimeline, maxTime) : null;
   const notatedChordText =
     notatedChordTimeline.length > 0 ? notatedChordTimeline.map((c) => c.label).join(" → ") : null;
@@ -324,6 +365,8 @@ export default function AnalyzeSongPage() {
             </div>
           )}
 
+          <PartSelector partNames={scorePartNames} selectedParts={selectedParts} onToggle={togglePart} />
+
           <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800">
             <div className="flex gap-1">
               {TABS.map((tab) => (
@@ -365,7 +408,18 @@ export default function AnalyzeSongPage() {
             />
           )}
           {activeTab === "expression" && (
-            <ExpressionTab data={{ tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter: meterAnalysis }} />
+            <ExpressionTab
+              data={{
+                tempo,
+                rhythmEntropy,
+                dynamics,
+                valence,
+                arousal,
+                arc,
+                meter: meterAnalysis,
+                percussionOnsetCount: percussionOnsets.length,
+              }}
+            />
           )}
           {activeTab === "ai" && (
             <AIExplanationTab

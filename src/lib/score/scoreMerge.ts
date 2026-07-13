@@ -29,6 +29,7 @@ export function mergeScoreAnalyses(files: FileScoreAnalysis[]): ScoreAnalysis {
   const events: NormalizedNoteEvent[] = [];
   const partNames: string[] = [];
   const notatedChordTimeline: NotatedChordPoint[] = [];
+  const percussionOnsets: number[] = [];
 
   for (const { fileName, analysis } of files) {
     const baseLabel = stripExtension(fileName);
@@ -41,20 +42,25 @@ export function mergeScoreAnalyses(files: FileScoreAnalysis[]): ScoreAnalysis {
 
     partNames.push(...(isSinglePart ? [baseLabel] : analysis.partNames.map((name) => `${baseLabel} - ${name}`)));
     notatedChordTimeline.push(...analysis.notatedChordTimeline);
+    percussionOnsets.push(...analysis.percussionOnsets);
   }
 
   events.sort((a, b) => a.time - b.time);
   notatedChordTimeline.sort((a, b) => a.time - b.time);
+  percussionOnsets.sort((a, b) => a - b);
 
-  // Key/meter timelines are taken from the first file only, rather than
-  // merged — there's no principled way to combine two different notated
-  // key/time signatures into one, and checkConsistency already flags when
-  // they disagree across files.
+  // Key/meter/tempo are taken from the first file only, rather than merged
+  // — there's no principled way to combine two different notated key/time
+  // signatures/tempos into one, and checkConsistency already flags when
+  // they disagree across files. Percussion onsets, by contrast, are pure
+  // beat indicators with no such "which one is right" ambiguity, so they're
+  // pooled from every file.
   const reference = files[0]?.analysis;
   const notatedKeyTimeline: NotatedKeyPoint[] = reference?.notatedKeyTimeline ?? [];
   const meterTimeline: MeterPoint[] = reference?.meterTimeline ?? [];
+  const notatedTempoBpm: number | null = reference?.notatedTempoBpm ?? null;
 
-  return { events, notatedKeyTimeline, notatedChordTimeline, partNames, meterTimeline };
+  return { events, notatedKeyTimeline, notatedChordTimeline, partNames, meterTimeline, notatedTempoBpm, percussionOnsets };
 }
 
 export interface MergedScoreResult {

@@ -37,9 +37,16 @@ describe("analyzeMeter", () => {
     expect(analyzeMeter([note(0), note(1)], [], 4)).toBeNull();
   });
 
-  it("returns null when there are no events", () => {
+  it("returns null when there are no events and no percussion onsets", () => {
     const meterTimeline: MeterPoint[] = [{ time: 0, numerator: 4, denominator: 4 }];
     expect(analyzeMeter([], meterTimeline, 4)).toBeNull();
+  });
+
+  it("runs on percussion onsets alone (a drum-only score, no pitched parts)", () => {
+    const meterTimeline: MeterPoint[] = [{ time: 0, numerator: 4, denominator: 4 }];
+    const result = analyzeMeter([], meterTimeline, 4, [], [], [0, 1, 2, 3]);
+    expect(result).not.toBeNull();
+    expect(result?.syncopation.pairCount).toBe(3);
   });
 
   it("finds zero syncopation for an isochronous on-the-beat quarter-note stream in 4/4", () => {
@@ -125,5 +132,26 @@ describe("analyzeMeter", () => {
       { time: 0, numerator: 4, denominator: 4 },
       { time: 4, numerator: 3, denominator: 4 },
     ]);
+  });
+
+  it("folds percussion onsets into the same syncopation calculation as pitched onsets", () => {
+    // Identical setup to the "8th-note and held through a stronger beat"
+    // case above, but the onsets come from percussionOnsets instead of
+    // pitched events (events is empty) — the math should be identical.
+    const meterTimeline: MeterPoint[] = [{ time: 0, numerator: 4, denominator: 4 }];
+    const result = analyzeMeter([], meterTimeline, 4, [], [], [0.5, 2.5]);
+
+    expect(result?.syncopation.pairCount).toBe(1);
+    expect(result?.syncopation.rawScore).toBeCloseTo(3);
+    expect(result?.syncopation.normalizedScore).toBeCloseTo(0.6);
+  });
+
+  it("merges pitched-event onsets and percussion onsets into one deduplicated stream", () => {
+    const meterTimeline: MeterPoint[] = [{ time: 0, numerator: 4, denominator: 4 }];
+    // A guitar note at 0.5s and a kick drum at the same instant (0.5s)
+    // should collapse to a single onset, plus the drum's later hit at 2.5s.
+    const result = analyzeMeter([note(0.5)], meterTimeline, 4, [], [], [0.5, 2.5]);
+
+    expect(result?.syncopation.pairCount).toBe(1); // 2 distinct onsets -> 1 pair, not 2
   });
 });

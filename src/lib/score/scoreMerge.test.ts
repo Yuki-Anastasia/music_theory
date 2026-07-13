@@ -22,6 +22,8 @@ function analysis(overrides: Partial<ScoreAnalysis> = {}): ScoreAnalysis {
     notatedChordTimeline: [],
     partNames: [],
     meterTimeline: [],
+    notatedTempoBpm: null,
+    percussionOnsets: [],
     ...overrides,
   };
 }
@@ -115,6 +117,24 @@ describe("mergeScoreAnalyses", () => {
       notatedChordTimeline: [],
       partNames: [],
       meterTimeline: [],
+      notatedTempoBpm: null,
+      percussionOnsets: [],
     });
+  });
+
+  it("takes notatedTempoBpm from the first file only", () => {
+    const files: FileScoreAnalysis[] = [
+      { fileName: "A.musicxml", analysis: analysis({ notatedTempoBpm: 140 }) },
+      { fileName: "B.musicxml", analysis: analysis({ notatedTempoBpm: 90 }) },
+    ];
+    expect(mergeScoreAnalyses(files).notatedTempoBpm).toBe(140);
+  });
+
+  it("pools percussionOnsets from every file, sorted", () => {
+    const files: FileScoreAnalysis[] = [
+      { fileName: "A.musicxml", analysis: analysis({ percussionOnsets: [2, 0] }) },
+      { fileName: "B.musicxml", analysis: analysis({ percussionOnsets: [1] }) },
+    ];
+    expect(mergeScoreAnalyses(files).percussionOnsets).toEqual([0, 1, 2]);
   });
 });

@@ -94,9 +94,11 @@ function buildTickToSeconds(tempoChanges: TempoChange[]): (tick: number) => numb
  * alphaTab's Score model so it's directly unit-testable without binary
  * Guitar Pro fixtures.
  *
- * Percussion tracks are dropped entirely: their midi note numbers are
- * General MIDI drum-kit codes, not pitches, and would corrupt
- * pitch-class-based analysis (key detection, Tonnetz, chord labeling).
+ * Percussion tracks are dropped from `events` entirely: their midi note
+ * numbers are General MIDI drum-kit codes, not pitches, and would corrupt
+ * pitch-class-based analysis (key detection, Tonnetz, chord labeling). Their
+ * onset times are still kept separately in `percussionOnsets`, since a
+ * drum hit is real rhythmic information even though it isn't a pitch.
  */
 export function buildAnalysisFromMidiEvents(
   notes: RawMidiNote[],
@@ -130,6 +132,17 @@ export function buildAnalysisFromMidiEvents(
     })
     .sort((a, b) => a.time - b.time);
 
+  const percussionOnsets: number[] = notes
+    .filter((n) => percussionTrackIndices.has(n.track))
+    .map((n) => tickToSeconds(n.startTick))
+    .sort((a, b) => a - b);
+
+  // Every Guitar Pro file persists a tempo value (it's a required field of
+  // the format), so this is genuinely "notated" even when the author never
+  // consciously changed it from the software's own default — unlike
+  // MusicXML, where <sound tempo> is optional and often simply absent.
+  const notatedTempoBpm = tempoChanges.length > 0 ? tempoChanges[0].bpm : null;
+
   return {
     events,
     // Guitar Pro's key/chord-symbol data isn't surfaced by the midi
@@ -140,6 +153,8 @@ export function buildAnalysisFromMidiEvents(
     notatedChordTimeline: [],
     partNames: trackNames,
     meterTimeline,
+    notatedTempoBpm,
+    percussionOnsets,
   };
 }
 

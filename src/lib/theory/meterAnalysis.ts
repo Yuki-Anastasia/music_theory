@@ -162,15 +162,22 @@ export interface SyncopationEstimate {
 
 /**
  * Longuet-Higgins & Lee (1984)-inspired syncopation estimate: merges onset
- * times across ALL parts into one composite attack stream (a documented
- * simplification — their original model is monophonic), then for each
- * consecutive onset pair, checks whether a metrically stronger grid slot
- * falls strictly inside that span (the note "skips" re-articulating a
- * stronger beat). Reports raw+ceiling+normalized+per-pair-average rather
- * than forcing a single ratio, matching this codebase's existing
- * convention (see RhythmicEntropyEstimate, ConsonanceEstimate).
+ * times across ALL parts — pitched events plus, when given, percussion
+ * onsets (drum hits carry no pitch but are often the clearest indicator of
+ * where the beat actually falls) — into one composite attack stream (a
+ * documented simplification — their original model is monophonic), then
+ * for each consecutive onset pair, checks whether a metrically stronger
+ * grid slot falls strictly inside that span (the note "skips"
+ * re-articulating a stronger beat). Reports raw+ceiling+normalized+
+ * per-pair-average rather than forcing a single ratio, matching this
+ * codebase's existing convention (see RhythmicEntropyEstimate,
+ * ConsonanceEstimate).
  */
-function estimateSyncopation(events: NormalizedNoteEvent[], grids: MetricGrid[]): SyncopationEstimate {
+function estimateSyncopation(
+  events: NormalizedNoteEvent[],
+  grids: MetricGrid[],
+  percussionOnsets: number[] = []
+): SyncopationEstimate {
   const empty: SyncopationEstimate = {
     rawScore: 0,
     maxPossibleScore: 0,
@@ -178,11 +185,11 @@ function estimateSyncopation(events: NormalizedNoteEvent[], grids: MetricGrid[])
     averageContributionPerPair: 0,
     pairCount: 0,
   };
-  if (events.length === 0 || grids.length === 0) return empty;
+  if ((events.length === 0 && percussionOnsets.length === 0) || grids.length === 0) return empty;
 
   const coveredStart = grids[0].barStart;
   const coveredEnd = grids[grids.length - 1].barEnd;
-  const onsetTimes = Array.from(new Set(events.map((e) => e.time)))
+  const onsetTimes = Array.from(new Set([...events.map((e) => e.time), ...percussionOnsets]))
     .filter((t) => t >= coveredStart - EPS && t <= coveredEnd + EPS)
     .sort((a, b) => a - b);
 
@@ -282,15 +289,23 @@ export interface MeterAnalysisResult {
  * audio-transcribed events (no bar data), in which case this returns null
  * rather than a forced/empty result, matching the project's "don't assert
  * without data" convention.
+ *
+ * percussionOnsets (from ScoreAnalysis) folds drum-hit timing into the
+ * syncopation calculation only — percussion has no pitch, so it never
+ * enters `events` and never touches key/chord/counterpoint analysis, but
+ * it's still real rhythmic information about where the beat falls.
  */
 export function analyzeMeter(
   events: NormalizedNoteEvent[],
   meterTimeline: MeterPoint[],
   maxTime: number,
   tonnetzTrajectory: TonnetzTimelinePoint[] = [],
-  notatedChordTimeline: NotatedChordPoint[] = []
+  notatedChordTimeline: NotatedChordPoint[] = [],
+  percussionOnsets: number[] = []
 ): MeterAnalysisResult | null {
-  if (meterTimeline.length === 0 || events.length === 0 || maxTime <= 0) return null;
+  if (meterTimeline.length === 0 || (events.length === 0 && percussionOnsets.length === 0) || maxTime <= 0) {
+    return null;
+  }
 
   const grids = buildMetricGrids(meterTimeline, maxTime);
   if (grids.length === 0) return null;
@@ -304,7 +319,7 @@ export function analyzeMeter(
 
   return {
     meterSummary,
-    syncopation: estimateSyncopation(events, grids),
+    syncopation: estimateSyncopation(events, grids, percussionOnsets),
     harmonicRhythmAlignment: analyzeHarmonicRhythmAlignment(grids, tonnetzTrajectory, notatedChordTimeline),
   };
 }

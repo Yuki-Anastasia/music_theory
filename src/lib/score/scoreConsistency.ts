@@ -32,6 +32,33 @@ interface ReliableKey {
   mode: Mode;
 }
 
+interface ReliableTempo {
+  bpm: number;
+  /** "notated" (from <sound tempo>/Guitar Pro's tempo field) is trusted outright; "estimated" (onset autocorrelation) is a fallback only used when nothing was notated. */
+  source: "notated" | "estimated";
+}
+
+/**
+ * Prefers the tempo as actually written in the file over re-deriving it
+ * from the note pattern — if there's a 表記 (notation), just follow it. Only
+ * falls back to estimateTempo (and only when it's "high" confidence) for
+ * the rarer case of a MusicXML file with no <sound tempo> at all; Guitar
+ * Pro files always have a notated tempo (see buildAnalysisFromMidiEvents),
+ * so this fallback path is effectively MusicXML-only. This also sidesteps
+ * estimateTempo's known octave-ambiguity failure mode (it can lock onto a
+ * tempo/2 or tempo/3 subharmonic for a perfectly regular rhythm), since the
+ * notated value has no such ambiguity.
+ */
+function reliableTempo(analysis: ScoreAnalysis): ReliableTempo | null {
+  if (analysis.notatedTempoBpm !== null) {
+    return { bpm: analysis.notatedTempoBpm, source: "notated" };
+  }
+  if (analysis.events.length === 0) return null;
+  const estimated = estimateTempo(analysis.events);
+  if (estimated.confidence !== "high") return null;
+  return { bpm: estimated.bpm, source: "estimated" };
+}
+
 /**
  * Prefers the notated key (ground truth, when the score has one) over the
  * estimated key, and only trusts a "high"-confidence estimate — a "low"
@@ -81,16 +108,17 @@ export function checkConsistency(files: FileScoreAnalysis[]): ScoreConsistencyWa
     }
   }
 
-  const referenceTempo = reference.analysis.events.length > 0 ? estimateTempo(reference.analysis.events) : null;
-  if (referenceTempo && referenceTempo.confidence === "high") {
+  const referenceTempo = reliableTempo(reference.analysis);
+  if (referenceTempo) {
     for (const file of rest) {
-      if (file.analysis.events.length === 0) continue;
-      const tempo = estimateTempo(file.analysis.events);
-      if (tempo.confidence !== "high") continue;
+      const tempo = reliableTempo(file.analysis);
+      if (!tempo) continue;
       if (Math.abs(tempo.bpm - referenceTempo.bpm) > TEMPO_MISMATCH_BPM) {
+        const refQualifier = referenceTempo.source === "estimated" ? "推定" : "記譜";
+        const qualifier = tempo.source === "estimated" ? "推定" : "記譜";
         warnings.push({
           type: "tempo",
-          message: `テンポの不一致: 「${reference.fileName}」(約${referenceTempo.bpm}BPM)と「${file.fileName}」(約${tempo.bpm}BPM)で推定テンポが大きく異なります。`,
+          message: `テンポの不一致: 「${reference.fileName}」(${refQualifier}約${referenceTempo.bpm}BPM)と「${file.fileName}」(${qualifier}約${tempo.bpm}BPM)でテンポが大きく異なります。`,
         });
       }
     }

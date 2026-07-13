@@ -45,16 +45,23 @@ describe("buildAnalysisFromMidiEvents", () => {
     expect(events[0].durationSeconds).toBeCloseTo(1); // played out entirely at 60bpm
   });
 
-  it("drops notes on percussion tracks so drum-kit codes don't pollute pitch-class analysis", () => {
+  it("drops notes on percussion tracks from events, but keeps their onsets in percussionOnsets", () => {
     const notes: RawMidiNote[] = [
       { track: 0, startTick: 0, lengthTicks: TICKS_PER_QUARTER, midiNote: 60, velocity: 127 },
       { track: 1, startTick: 0, lengthTicks: TICKS_PER_QUARTER, midiNote: 38, velocity: 100 }, // snare
+      { track: 1, startTick: TICKS_PER_QUARTER, lengthTicks: TICKS_PER_QUARTER, midiNote: 36, velocity: 100 }, // kick
     ];
 
-    const { events } = buildAnalysisFromMidiEvents(notes, [{ tick: 0, bpm: 120 }], ["Guitar", "Drums"], new Set([1]));
+    const { events, percussionOnsets } = buildAnalysisFromMidiEvents(
+      notes,
+      [{ tick: 0, bpm: 120 }],
+      ["Guitar", "Drums"],
+      new Set([1])
+    );
 
     expect(events).toHaveLength(1);
     expect(events[0].midiNote).toBe(60);
+    expect(percussionOnsets).toEqual([0, 0.5]);
   });
 
   it("sorts events by time even when notes arrive out of order across tracks", () => {
@@ -112,5 +119,15 @@ describe("buildAnalysisFromMidiEvents", () => {
     const { meterTimeline } = buildAnalysisFromMidiEvents([], tempoChanges, [], new Set(), masterBars);
 
     expect(meterTimeline[1].time).toBeCloseTo(1); // reached entirely within the 120bpm segment
+  });
+
+  it("takes notatedTempoBpm from the first tempo change, since Guitar Pro always persists one", () => {
+    const { notatedTempoBpm } = buildAnalysisFromMidiEvents([], [{ tick: 0, bpm: 140 }], [], new Set());
+    expect(notatedTempoBpm).toBe(140);
+  });
+
+  it("leaves notatedTempoBpm null when no tempo change was ever emitted", () => {
+    const { notatedTempoBpm } = buildAnalysisFromMidiEvents([], [], [], new Set());
+    expect(notatedTempoBpm).toBeNull();
   });
 });

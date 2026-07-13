@@ -149,6 +149,19 @@ function summarizeCounterpoint(counterpoint: CounterpointAnalysis): string {
 }
 
 /**
+ * Whenever the input came from a score/tab with identifiable instrument
+ * parts, the model is told explicitly which one(s) the analysis covers —
+ * whether that's every part (the default) or a subset the user narrowed
+ * down with PartSelector in the UI. Without this, the model narrates "the
+ * song" as if describing the whole ensemble when the numbers might only
+ * reflect e.g. the guitar part alone. Omitted entirely for audio-
+ * transcribed input, which has no part data at all.
+ */
+function summarizeIncludedParts(includedParts: string[]): string {
+  return `解析対象パート: ${includedParts.join("、")}(この曲のうち、上記のパートのみを対象に解析しています)`;
+}
+
+/**
  * Builds a compact, rounded, plain-text summary of already-computed analysis
  * facts — no raw arrays, no room for the LLM to invent numbers. This is the
  * only input the /api/summarize route hands to Claude, so the model narrates
@@ -169,10 +182,12 @@ export function buildAnalysisFacts(
   mood: MoodFacts,
   arc: ArcSection[],
   meter?: MeterAnalysisResult | null,
-  counterpoint?: CounterpointAnalysis | null
+  counterpoint?: CounterpointAnalysis | null,
+  includedParts?: string[]
 ): string {
   return [
     `曲: ${label}(長さ ${formatTime(durationSec)})`,
+    ...(includedParts && includedParts.length > 0 ? [summarizeIncludedParts(includedParts)] : []),
     summarizeKeyTimeline(keyTimeline, durationSec),
     summarizeTonnetzTrajectory(tonnetzTrajectory),
     summarizeAestheticMetrics(metrics),
