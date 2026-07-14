@@ -2,7 +2,7 @@ import type { KeyTimelinePoint } from "./keyTimeline";
 import type { FourierTimelinePoint } from "./fourierTimeline";
 import type { TonnetzTimelinePoint } from "./tonnetzTimeline";
 import type { AestheticMetrics } from "./aestheticMetrics";
-import type { TempoEstimate, RhythmicEntropyEstimate } from "./rhythmAnalysis";
+import type { TempoEstimate, RhythmicEntropyEstimate, NoteValueCount, NoteValueName } from "./rhythmAnalysis";
 import type { DynamicsSummary } from "./dynamicsAnalysis";
 import type { ArcSection, ClimaxEstimate } from "./songArc";
 import type { MeterAnalysisResult } from "./meterAnalysis";
@@ -12,11 +12,14 @@ import type { ScoreConsistencyWarning } from "../score/scoreConsistency";
 import type { MelodicRange } from "./melodicRange";
 import type { ModulationEvent } from "./modulation";
 import type { ChordFunctionPoint } from "./chordFunction";
-import type { RecurrenceMatch } from "./songForm";
+import type { SongFormResult } from "./songForm";
+import type { PitchClassShare, ScaleFitEstimate, ScaleName } from "./pitchClassProfile";
+import type { InstrumentBuildUp } from "./instrumentDensity";
+import { PERCUSSION_PART_LABEL } from "./instrumentDensity";
 import { collapseKeySegments } from "./keyProfile";
 import { chordLabel } from "./tonnetz";
 import { describeMoodQuadrant } from "./emotionEstimate";
-import { midiToNoteName } from "../audio/pitch";
+import { midiToNoteName, PITCH_CLASS_NAMES } from "../audio/pitch";
 import { modulationLabel } from "./modulation";
 
 export interface MoodFacts {
@@ -47,6 +50,34 @@ function summarizeNotatedKey(notatedKeyTimeline: NotatedKeyPoint[], durationSec:
   const segments = collapseKeySegments(notatedKeyTimeline, durationSec, (p) => p, () => false);
   const lines = segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`);
   return `記譜上の調号(楽譜に実際に記譜された調、推定ではない): ${lines.join(", ")}`;
+}
+
+const SCALE_NAME_LABEL: Record<ScaleName, string> = {
+  major: "メジャースケール",
+  naturalMinor: "ナチュラルマイナースケール",
+  harmonicMinor: "ハーモニックマイナースケール",
+  dorian: "ドリアンスケール",
+  mixolydian: "ミクソリディアンスケール",
+  majorPentatonic: "メジャーペンタトニックスケール",
+  minorPentatonic: "マイナーペンタトニックスケール",
+  blues: "ブルーススケール",
+  wholeTone: "全音音階",
+};
+
+/**
+ * Raw pitch-class usage, distinct from the derived key/scale readings
+ * elsewhere — this is what those readings are computed FROM. The scale-fit
+ * line is only appended when estimateScaleFit found a high-confidence
+ * match; a low-confidence guess isn't worth stating as if it were a fact.
+ */
+function summarizePitchClassProfile(distribution: PitchClassShare[], scaleFit: ScaleFitEstimate | null): string {
+  if (distribution.length === 0) return "使用音(ピッチクラス)の分布: データなし";
+  const lines = distribution.slice(0, 8).map((p) => `${PITCH_CLASS_NAMES[p.pitchClass]} ${(p.share * 100).toFixed(1)}%`);
+  const scaleLine =
+    scaleFit && scaleFit.confidence === "high"
+      ? `\nこれは${PITCH_CLASS_NAMES[scaleFit.root]}${SCALE_NAME_LABEL[scaleFit.scaleName]}の構成音とほぼ一致します(一致度${(scaleFit.coverage * 100).toFixed(0)}%)。`
+      : "";
+  return `使用音(ピッチクラス)の分布(継続時間で重み付け): ${lines.join(", ")}${scaleLine}`;
 }
 
 function summarizeFourierTimeline(fourierTimeline: FourierTimelinePoint[]): string {
@@ -144,6 +175,28 @@ function summarizeMood(mood: MoodFacts): string {
   ].join("\n");
 }
 
+const NOTE_VALUE_LABEL: Record<NoteValueName, string> = {
+  whole: "全音符",
+  dottedHalf: "付点2分音符",
+  half: "2分音符",
+  dottedQuarter: "付点4分音符",
+  quarter: "4分音符",
+  quarterTriplet: "4分3連符",
+  dottedEighth: "付点8分音符",
+  eighth: "8分音符",
+  eighthTriplet: "8分3連符",
+  dottedSixteenth: "付点16分音符",
+  sixteenth: "16分音符",
+  sixteenthTriplet: "16分3連符",
+  thirtySecond: "32分音符",
+};
+
+/** Complementary to rhythmicEntropy's tempo-agnostic buckets above — this names the actual notated-style value at the estimated/notated tempo. */
+function summarizeNoteValueBreakdown(breakdown: NoteValueCount[]): string {
+  const lines = breakdown.map((b) => `- ${NOTE_VALUE_LABEL[b.name]}: ${b.count}音`);
+  return ["音価の内訳(テンポから逆算した記譜上の音価に分類、簡易的な指標):", ...lines].join("\n");
+}
+
 /**
  * Per-section (序盤/中盤/終盤 by default) breakdown of consonance, dynamics,
  * and mood — the same whole-song metrics recomputed on time slices, so the
@@ -169,12 +222,33 @@ function summarizeClimax(climax: ClimaxEstimate): string {
   );
 }
 
-function summarizeSongForm(recurrence: RecurrenceMatch): string {
-  return (
-    `曲の構成の仮説: ${formatTime(recurrence.a.startSec)}-${formatTime(recurrence.a.endSec)}の音使いが` +
-    `${formatTime(recurrence.b.startSec)}-${formatTime(recurrence.b.endSec)}にも類似度${recurrence.similarity.toFixed(2)}で再登場しており、` +
-    "同じセクションの繰り返しである可能性があります"
+function summarizeSongForm(songForm: SongFormResult): string {
+  const sectionLine = songForm.sections.map((s) => `${s.group}(${formatTime(s.startSec)}-${formatTime(s.endSec)})`).join(" → ");
+  const recurrenceLines = songForm.recurrences.map(
+    (r) =>
+      `- ${formatTime(r.a.startSec)}-${formatTime(r.a.endSec)}の音使いが${formatTime(r.b.startSec)}-${formatTime(r.b.endSec)}にも` +
+      `類似度${r.similarity.toFixed(2)}で再登場`
   );
+  return [
+    "曲の構成の仮説(区間ごとの音使いの類似性に基づく分類、同じ記号は似た内容を示す):",
+    sectionLine,
+    ...recurrenceLines,
+  ].join("\n");
+}
+
+/** Score-import only (needs per-part timestamps). Sorted by entry order so the narrative can read as a build-up. */
+function summarizeInstrumentBuildUp(buildUp: InstrumentBuildUp): string {
+  const totalSegments = buildUp.parts[0]?.countsBySegment.length ?? 0;
+  const lines = [...buildUp.parts]
+    .sort((a, b) => a.firstActiveSegment - b.firstActiveSegment)
+    .map((p) => {
+      const label = p.partLabel === PERCUSSION_PART_LABEL ? "打楽器" : p.partLabel;
+      const totalNotes = p.countsBySegment.reduce((s, v) => s + v, 0);
+      return p.firstActiveSegment === 0
+        ? `- ${label}: 曲の冒頭から参加(計${totalNotes}音)`
+        : `- ${label}: 第${p.firstActiveSegment + 1}区間(全${totalSegments}区間中)から参加(計${totalNotes}音)`;
+    });
+  return ["楽器編成の厚みの推移(区間ごとの参加状況、テクスチャの積み上がり方):", ...lines].join("\n");
 }
 
 function summarizeMeter(meter: MeterAnalysisResult): string {
@@ -247,7 +321,11 @@ export interface AnalysisFactsInput {
   climax?: ClimaxEstimate | null;
   modulations?: ModulationEvent[];
   chordFunctions?: ChordFunctionPoint[];
-  songForm?: RecurrenceMatch | null;
+  songForm?: SongFormResult | null;
+  pitchClassDistribution?: PitchClassShare[];
+  scaleFit?: ScaleFitEstimate | null;
+  noteValueBreakdown?: NoteValueCount[];
+  instrumentBuildUp?: InstrumentBuildUp | null;
 }
 
 /**
@@ -265,7 +343,8 @@ export function buildAnalysisFacts(input: AnalysisFactsInput): string {
   const {
     label, durationSec, keyTimeline, fourierTimeline, tonnetzTrajectory, metrics, mood, arc,
     meter, counterpoint, includedParts, notatedKeyTimeline, scoreWarnings, melodicRange,
-    climax, modulations, chordFunctions, songForm,
+    climax, modulations, chordFunctions, songForm, pitchClassDistribution, scaleFit,
+    noteValueBreakdown, instrumentBuildUp,
   } = input;
 
   return [
@@ -273,6 +352,9 @@ export function buildAnalysisFacts(input: AnalysisFactsInput): string {
     ...(includedParts && includedParts.length > 0 ? [summarizeIncludedParts(includedParts)] : []),
     ...(scoreWarnings && scoreWarnings.length > 0 ? [summarizeScoreWarnings(scoreWarnings)] : []),
     ...(notatedKeyTimeline && notatedKeyTimeline.length > 0 ? [summarizeNotatedKey(notatedKeyTimeline, durationSec)] : []),
+    ...(pitchClassDistribution && pitchClassDistribution.length > 0
+      ? [summarizePitchClassProfile(pitchClassDistribution, scaleFit ?? null)]
+      : []),
     summarizeKeyTimeline(keyTimeline, durationSec),
     ...(modulations && modulations.length > 0 ? [summarizeModulations(modulations)] : []),
     summarizeFourierTimeline(fourierTimeline),
@@ -281,9 +363,11 @@ export function buildAnalysisFacts(input: AnalysisFactsInput): string {
     summarizeAestheticMetrics(metrics),
     ...(melodicRange ? [summarizeMelodicRange(melodicRange)] : []),
     summarizeMood(mood),
+    ...(noteValueBreakdown && noteValueBreakdown.length > 0 ? [summarizeNoteValueBreakdown(noteValueBreakdown)] : []),
     summarizeSongArc(arc),
     ...(climax ? [summarizeClimax(climax)] : []),
     ...(songForm ? [summarizeSongForm(songForm)] : []),
+    ...(instrumentBuildUp ? [summarizeInstrumentBuildUp(instrumentBuildUp)] : []),
     ...(meter ? [summarizeMeter(meter)] : []),
     ...(counterpoint ? [summarizeCounterpoint(counterpoint)] : []),
   ].join("\n");

@@ -13,7 +13,9 @@ import { melodicRange } from "@/lib/theory/melodicRange";
 import { estimateClimax } from "@/lib/theory/songArc";
 import { detectModulations } from "@/lib/theory/modulation";
 import { analyzeChordFunctions } from "@/lib/theory/chordFunction";
-import { findStrongestRecurrence } from "@/lib/theory/songForm";
+import { analyzeSongForm } from "@/lib/theory/songForm";
+import { pitchClassDistribution, estimateScaleFit } from "@/lib/theory/pitchClassProfile";
+import { analyzeInstrumentBuildUp } from "@/lib/theory/instrumentDensity";
 import OverviewTab from "@/components/analyze/OverviewTab";
 import TonalityTab from "@/components/analyze/TonalityTab";
 import HarmonyTab from "@/components/analyze/HarmonyTab";
@@ -34,7 +36,7 @@ import {
   consonanceOfHistogram,
   conditionalPitchEntropy,
 } from "@/lib/theory/aestheticMetrics";
-import { estimateTempo, rhythmicEntropy, TempoEstimate } from "@/lib/theory/rhythmAnalysis";
+import { estimateTempo, rhythmicEntropy, noteValueBreakdown, TempoEstimate } from "@/lib/theory/rhythmAnalysis";
 import { dynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
 import { estimateValence, estimateArousal } from "@/lib/theory/emotionEstimate";
 import { separateVoices } from "@/lib/theory/voiceSeparation";
@@ -193,6 +195,10 @@ export default function AnalyzeSongPage() {
     modulations,
     chordFunctions,
     songForm,
+    pitchClassDistribution: pitchClassDistributionStats,
+    scaleFit,
+    noteValueBreakdown: noteValueBreakdownStats,
+    instrumentBuildUp,
     locale,
     explanationLevel,
   });
@@ -308,7 +314,12 @@ export default function AnalyzeSongPage() {
       ? analyzeChordFunctions(tonnetzTrajectory, keyTimeline)
       : [];
   const melodicRangeStats = voices ? melodicRange(voices.melody) : null;
-  const songForm = events.length > 0 ? findStrongestRecurrence(events, maxTime) : null;
+  const songForm = events.length > 0 ? analyzeSongForm(events, maxTime) : null;
+  const pitchClassDistributionStats = events.length > 0 ? pitchClassDistribution(histogram) : [];
+  const scaleFit = events.length > 0 ? estimateScaleFit(histogram) : null;
+  const noteValueBreakdownStats = events.length > 0 && tempo ? noteValueBreakdown(events, tempo.bpm) : [];
+  const instrumentBuildUp =
+    scorePartNames.length > 0 ? analyzeInstrumentBuildUp(events, percussionOnsets, maxTime) : null;
 
   // Both are score-import-only: meterTimeline/scorePartNames stay empty for
   // audio-transcribed input (see handleReady above), so these naturally
@@ -467,7 +478,19 @@ export default function AnalyzeSongPage() {
           </div>
 
           {activeTab === "overview" && (
-            <OverviewTab data={{ label, events, maxTime, histogram, histogramMax, partComposition, voices }} />
+            <OverviewTab
+              data={{
+                label,
+                events,
+                maxTime,
+                histogram,
+                histogramMax,
+                partComposition,
+                voices,
+                pitchClassDistribution: pitchClassDistributionStats,
+                scaleFit,
+              }}
+            />
           )}
           {activeTab === "tonality" && (
             <TonalityTab data={{ keyTimeline, fourierTimeline, notatedKeyText }} />
@@ -496,6 +519,7 @@ export default function AnalyzeSongPage() {
                 arc,
                 meter: meterAnalysis,
                 percussionOnsetCount: percussionOnsets.length,
+                noteValueBreakdown: noteValueBreakdownStats,
               }}
             />
           )}

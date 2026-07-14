@@ -22,6 +22,11 @@ export default function AboutPage() {
         <h2 className="text-sm font-semibold">{t.aiHeading}</h2>
         <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{t.aiBody}</p>
       </div>
+
+      <div className="border-t border-zinc-200 pt-8 dark:border-zinc-800">
+        <h2 className="text-sm font-semibold">{t.differentiationHeading}</h2>
+        <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{t.differentiationBody}</p>
+      </div>
     </main>
   );
 }

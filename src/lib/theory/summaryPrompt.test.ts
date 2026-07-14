@@ -13,7 +13,11 @@ import type { ScoreConsistencyWarning } from "../score/scoreConsistency";
 import type { MelodicRange } from "./melodicRange";
 import type { ModulationEvent } from "./modulation";
 import type { ChordFunctionPoint } from "./chordFunction";
-import type { RecurrenceMatch } from "./songForm";
+import type { SongFormResult } from "./songForm";
+import type { PitchClassShare, ScaleFitEstimate } from "./pitchClassProfile";
+import type { NoteValueCount } from "./rhythmAnalysis";
+import type { InstrumentBuildUp } from "./instrumentDensity";
+import { PERCUSSION_PART_LABEL } from "./instrumentDensity";
 
 const EMPTY_METRICS: AestheticMetrics = {
   consonance: { averageGradus: 0, consonanceScore: 0 },
@@ -299,15 +303,82 @@ describe("buildAnalysisFacts", () => {
     expect(buildAnalysisFacts(baseInput({ chordFunctions: [] }))).not.toContain("和音の機能");
   });
 
-  it("includes a song-form recurrence hypothesis when present", () => {
-    const songForm: RecurrenceMatch = { a: { startSec: 0, endSec: 6 }, b: { startSec: 60, endSec: 66 }, similarity: 0.9 };
+  it("includes the song-form section map and any recurrence call-outs when present", () => {
+    const songForm: SongFormResult = {
+      sections: [
+        { startSec: 0, endSec: 6, group: "A" },
+        { startSec: 6, endSec: 12, group: "B" },
+        { startSec: 60, endSec: 66, group: "A" },
+      ],
+      recurrences: [{ a: { startSec: 0, endSec: 6 }, b: { startSec: 60, endSec: 66 }, similarity: 0.9 }],
+    };
     const facts = buildAnalysisFacts(baseInput({ songForm }));
     expect(facts).toContain("曲の構成の仮説");
-    expect(facts).toContain("0:00-0:06");
-    expect(facts).toContain("1:00-1:06");
+    expect(facts).toContain("A(0:00-0:06) → B(0:06-0:12) → A(1:00-1:06)");
+    expect(facts).toContain("0:00-0:06の音使いが1:00-1:06にも");
   });
 
   it("omits song form when null", () => {
     expect(buildAnalysisFacts(baseInput({ songForm: null }))).not.toContain("曲の構成");
+  });
+
+  it("includes the pitch-class distribution and names a high-confidence scale fit", () => {
+    const pitchClassDistribution: PitchClassShare[] = [
+      { pitchClass: 4, share: 0.464 },
+      { pitchClass: 2, share: 0.189 },
+    ];
+    const scaleFit: ScaleFitEstimate = { root: 4, scaleName: "minorPentatonic", pitchClasses: [2, 4, 7, 9, 11], coverage: 1, confidence: "high" };
+    const facts = buildAnalysisFacts(baseInput({ pitchClassDistribution, scaleFit }));
+    expect(facts).toContain("使用音(ピッチクラス)の分布");
+    expect(facts).toContain("E 46.4%");
+    expect(facts).toContain("Eマイナーペンタトニックスケール");
+  });
+
+  it("omits the scale-fit sentence when confidence is low, but still lists the distribution", () => {
+    const pitchClassDistribution: PitchClassShare[] = [{ pitchClass: 4, share: 1 }];
+    const scaleFit: ScaleFitEstimate = { root: 0, scaleName: "wholeTone", pitchClasses: [], coverage: 0.4, confidence: "low" };
+    const facts = buildAnalysisFacts(baseInput({ pitchClassDistribution, scaleFit }));
+    expect(facts).toContain("使用音(ピッチクラス)の分布");
+    expect(facts).not.toContain("スケールの構成音とほぼ一致");
+  });
+
+  it("omits the pitch-class distribution section when empty", () => {
+    expect(buildAnalysisFacts(baseInput())).not.toContain("使用音(ピッチクラス)");
+  });
+
+  it("includes the note-value breakdown when present", () => {
+    const noteValueBreakdown: NoteValueCount[] = [
+      { name: "sixteenth", count: 68 },
+      { name: "eighth", count: 29 },
+    ];
+    const facts = buildAnalysisFacts(baseInput({ noteValueBreakdown }));
+    expect(facts).toContain("音価の内訳");
+    expect(facts).toContain("16分音符: 68音");
+    expect(facts).toContain("8分音符: 29音");
+  });
+
+  it("omits the note-value breakdown when absent/empty", () => {
+    expect(buildAnalysisFacts(baseInput())).not.toContain("音価の内訳");
+    expect(buildAnalysisFacts(baseInput({ noteValueBreakdown: [] }))).not.toContain("音価の内訳");
+  });
+
+  it("includes the instrument build-up, translating the percussion sentinel and sorting by entry order", () => {
+    const instrumentBuildUp: InstrumentBuildUp = {
+      segmentDurationSec: 1,
+      parts: [
+        { partLabel: "Bass", countsBySegment: [0, 0, 3, 4, 0, 0, 0, 0], firstActiveSegment: 2 },
+        { partLabel: "Guitar", countsBySegment: [5, 5, 5, 5, 0, 0, 0, 0], firstActiveSegment: 0 },
+        { partLabel: PERCUSSION_PART_LABEL, countsBySegment: [0, 0, 3, 3, 0, 0, 0, 0], firstActiveSegment: 2 },
+      ],
+    };
+    const facts = buildAnalysisFacts(baseInput({ instrumentBuildUp }));
+    expect(facts).toContain("楽器編成の厚みの推移");
+    expect(facts).toContain("Guitar: 曲の冒頭から参加");
+    expect(facts).toContain("打楽器");
+    expect(facts.indexOf("Guitar")).toBeLessThan(facts.indexOf("Bass"));
+  });
+
+  it("omits the instrument build-up when null", () => {
+    expect(buildAnalysisFacts(baseInput({ instrumentBuildUp: null }))).not.toContain("楽器編成の厚み");
   });
 });

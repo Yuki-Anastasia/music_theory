@@ -1,4 +1,5 @@
 import type { Locale } from "../locale";
+import type { NoteValueName } from "@/lib/theory/rhythmAnalysis";
 
 interface ExpressionTabDict {
   rhythm: {
@@ -15,6 +16,7 @@ interface ExpressionTabDict {
       noteNotated: string;
     };
     complexity: { title: string; theory: string; value: (bits: string, max: string) => string; note: string };
+    noteValues: { heading: string; countLabel: (n: number) => string; names: Record<NoteValueName, string> };
   };
   meter: {
     label: string;
@@ -78,6 +80,25 @@ export const expressionTabDict: Record<Locale, ExpressionTabDict> = {
         theory: "音価分布のシャノンエントロピー",
         value: (bits, max) => `${bits} bit (最大 ${max} bit)`,
         note: "値が大きいほど音価のバリエーションが豊富",
+      },
+      noteValues: {
+        heading: "音価の内訳(テンポから逆算した推定)",
+        countLabel: (n) => `${n}音`,
+        names: {
+          whole: "全音符",
+          dottedHalf: "付点2分音符",
+          half: "2分音符",
+          dottedQuarter: "付点4分音符",
+          quarter: "4分音符",
+          quarterTriplet: "4分3連符",
+          dottedEighth: "付点8分音符",
+          eighth: "8分音符",
+          eighthTriplet: "8分3連符",
+          dottedSixteenth: "付点16分音符",
+          sixteenth: "16分音符",
+          sixteenthTriplet: "16分3連符",
+          thirtySecond: "32分音符",
+        },
       },
     },
     meter: {
@@ -148,6 +169,25 @@ export const expressionTabDict: Record<Locale, ExpressionTabDict> = {
         theory: "Shannon entropy of the note-duration distribution",
         value: (bits, max) => `${bits} bit (max ${max} bit)`,
         note: "Higher means a richer variety of note durations",
+      },
+      noteValues: {
+        heading: "Note-Value Breakdown (estimated from tempo)",
+        countLabel: (n) => `${n} notes`,
+        names: {
+          whole: "Whole note",
+          dottedHalf: "Dotted half note",
+          half: "Half note",
+          dottedQuarter: "Dotted quarter note",
+          quarter: "Quarter note",
+          quarterTriplet: "Quarter-note triplet",
+          dottedEighth: "Dotted eighth note",
+          eighth: "Eighth note",
+          eighthTriplet: "Eighth-note triplet",
+          dottedSixteenth: "Dotted sixteenth note",
+          sixteenth: "Sixteenth note",
+          sixteenthTriplet: "Sixteenth-note triplet",
+          thirtySecond: "Thirty-second note",
+        },
       },
     },
     meter: {

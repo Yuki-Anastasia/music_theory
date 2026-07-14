@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "音楽の数学 — Music Math Explorer",
+  title: "Notewave",
   description: "音楽を支配する数学的構造を、聞いて・見て探求するインタラクティブツール。",
 };
 

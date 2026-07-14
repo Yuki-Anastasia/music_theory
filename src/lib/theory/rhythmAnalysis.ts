@@ -105,3 +105,79 @@ export function rhythmicEntropy(events: NormalizedNoteEvent[]): RhythmicEntropyE
 
   return { entropyBits, maxEntropyBits: Math.log2(bucketCounts.size) };
 }
+
+export type NoteValueName =
+  | "whole"
+  | "dottedHalf"
+  | "half"
+  | "dottedQuarter"
+  | "quarter"
+  | "quarterTriplet"
+  | "dottedEighth"
+  | "eighth"
+  | "eighthTriplet"
+  | "dottedSixteenth"
+  | "sixteenth"
+  | "sixteenthTriplet"
+  | "thirtySecond";
+
+interface NoteValueTemplate {
+  name: NoteValueName;
+  beats: number; // duration in quarter notes
+}
+
+const NOTE_VALUE_TEMPLATES: NoteValueTemplate[] = [
+  { name: "whole", beats: 4 },
+  { name: "dottedHalf", beats: 3 },
+  { name: "half", beats: 2 },
+  { name: "dottedQuarter", beats: 1.5 },
+  { name: "quarter", beats: 1 },
+  { name: "quarterTriplet", beats: 2 / 3 },
+  { name: "dottedEighth", beats: 0.75 },
+  { name: "eighth", beats: 0.5 },
+  { name: "eighthTriplet", beats: 1 / 3 },
+  { name: "dottedSixteenth", beats: 0.375 },
+  { name: "sixteenth", beats: 0.25 },
+  { name: "sixteenthTriplet", beats: 1 / 6 },
+  { name: "thirtySecond", beats: 0.125 },
+];
+
+export interface NoteValueCount {
+  name: NoteValueName;
+  count: number;
+}
+
+/**
+ * Classifies each note's duration against a catalog of common rhythmic
+ * values (relative to the quarter note at the given tempo), matching by
+ * nearest ratio on a log2 scale -- since note values relate by powers of
+ * two (and triplets by thirds), comparing log-ratios rather than raw
+ * differences avoids systematically favoring long notes. This is a
+ * complementary view to rhythmicEntropy's tempo-agnostic relative buckets:
+ * this one names the actual notated-style value (the way a musician would
+ * read the rhythm), at the cost of needing a known tempo.
+ */
+export function noteValueBreakdown(events: NormalizedNoteEvent[], tempoBpm: number): NoteValueCount[] {
+  if (events.length === 0 || tempoBpm <= 0) return [];
+
+  const quarterNoteSec = 60 / tempoBpm;
+  const counts = new Map<NoteValueName, number>();
+  for (const event of events) {
+    if (event.durationSeconds <= 0) continue;
+    const ratio = event.durationSeconds / quarterNoteSec;
+    let best = NOTE_VALUE_TEMPLATES[0];
+    let bestDist = Infinity;
+    for (const template of NOTE_VALUE_TEMPLATES) {
+      const dist = Math.abs(Math.log2(ratio) - Math.log2(template.beats));
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = template;
+      }
+    }
+    counts.set(best.name, (counts.get(best.name) ?? 0) + 1);
+  }
+
+  return NOTE_VALUE_TEMPLATES.map((t) => ({ name: t.name, count: counts.get(t.name) ?? 0 }))
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count);
+}

@@ -4,7 +4,7 @@ import MetricCard from "@/components/analyze/MetricCard";
 import SectionHeader from "@/components/analyze/SectionHeader";
 import MoodQuadrantChart from "@/components/MoodQuadrantChart";
 import { describeMoodQuadrant } from "@/lib/theory/emotionEstimate";
-import type { TempoEstimate, RhythmicEntropyEstimate } from "@/lib/theory/rhythmAnalysis";
+import type { TempoEstimate, RhythmicEntropyEstimate, NoteValueCount } from "@/lib/theory/rhythmAnalysis";
 import type { DynamicsSummary } from "@/lib/theory/dynamicsAnalysis";
 import type { ArcSection } from "@/lib/theory/songArc";
 import type { MeterAnalysisResult } from "@/lib/theory/meterAnalysis";
@@ -22,6 +22,8 @@ export interface ExpressionTabData {
   meter: MeterAnalysisResult | null;
   /** How many percussion-track onsets fed into the syncopation figure above — drums carry no pitch, so they never appear as a selectable part, but their timing still informs the beat. 0 when the score has no percussion track or the input is audio-transcribed. */
   percussionOnsetCount: number;
+  /** Note counts classified against a catalog of common rhythmic values at the current tempo; empty until events/tempo exist. */
+  noteValueBreakdown: NoteValueCount[];
 }
 
 function formatTime(seconds: number): string {
@@ -36,7 +38,7 @@ function formatTime(seconds: number): string {
  * than as unrelated dashboard statistics.
  */
 export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
-  const { tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter, percussionOnsetCount } = data;
+  const { tempo, rhythmEntropy, dynamics, valence, arousal, arc, meter, percussionOnsetCount, noteValueBreakdown } = data;
   const { locale } = useLocale();
   const t = useDict(expressionTabDict);
   const dynamicsTrendLabel = { crescendo: t.dynamics.crescendo, diminuendo: t.dynamics.diminuendo, stable: t.dynamics.stable };
@@ -68,6 +70,18 @@ export default function ExpressionTab({ data }: { data: ExpressionTabData }) {
               note={t.rhythm.complexity.note}
             />
           </div>
+          {noteValueBreakdown.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-medium text-zinc-500">{t.rhythm.noteValues.heading}</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+                {noteValueBreakdown.map((b) => (
+                  <span key={b.name}>
+                    {t.rhythm.noteValues.names[b.name]}: {t.rhythm.noteValues.countLabel(b.count)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

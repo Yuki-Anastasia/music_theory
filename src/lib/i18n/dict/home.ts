@@ -16,7 +16,7 @@ interface HomeDict {
 
 export const homeDict: Record<Locale, HomeDict> = {
   ja: {
-    heading: "音楽の数学",
+    heading: "Notewave",
     intro:
       "音楽を支配する数学的構造 — 音響物理・幾何学・フーリエ解析・情報理論 — を、実際の曲やあなたの声・演奏を通して聞いて・見て探求するインタラクティブツールです。",
     analyzeCta: "曲を解析する",
@@ -40,7 +40,7 @@ export const homeDict: Record<Locale, HomeDict> = {
     },
   },
   en: {
-    heading: "The Mathematics of Music",
+    heading: "Notewave",
     intro:
       "The mathematical structures underlying music — acoustic physics, geometry, Fourier analysis, information theory — explored interactively through real songs and your own voice or playing.",
     analyzeCta: "Analyze a song",

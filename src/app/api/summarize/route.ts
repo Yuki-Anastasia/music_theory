@@ -13,7 +13,10 @@ import type { ScoreConsistencyWarning } from "@/lib/score/scoreConsistency";
 import type { MelodicRange } from "@/lib/theory/melodicRange";
 import type { ModulationEvent } from "@/lib/theory/modulation";
 import type { ChordFunctionPoint } from "@/lib/theory/chordFunction";
-import type { RecurrenceMatch } from "@/lib/theory/songForm";
+import type { SongFormResult } from "@/lib/theory/songForm";
+import type { PitchClassShare, ScaleFitEstimate } from "@/lib/theory/pitchClassProfile";
+import type { NoteValueCount } from "@/lib/theory/rhythmAnalysis";
+import type { InstrumentBuildUp } from "@/lib/theory/instrumentDensity";
 import type { Locale } from "@/lib/i18n/locale";
 import type { ExplanationLevel } from "@/lib/explanationLevel";
 import { DEFAULT_EXPLANATION_LEVEL } from "@/lib/explanationLevel";
@@ -36,7 +39,11 @@ interface SummarizeRequestBody {
   climax?: ClimaxEstimate | null;
   modulations?: ModulationEvent[];
   chordFunctions?: ChordFunctionPoint[];
-  songForm?: RecurrenceMatch | null;
+  songForm?: SongFormResult | null;
+  pitchClassDistribution?: PitchClassShare[];
+  scaleFit?: ScaleFitEstimate | null;
+  noteValueBreakdown?: NoteValueCount[];
+  instrumentBuildUp?: InstrumentBuildUp | null;
   locale?: Locale;
   explanationLevel?: ExplanationLevel;
   /** Prior conversation turns (assistant's initial explanation + any earlier follow-up Q&A), oldest first. Empty/omitted for the initial "generate" call. */
@@ -112,10 +119,14 @@ const SYSTEM_PROMPT_REST: Record<Locale, string> = {
     "\n\n" +
     "事実に「拍子・シンコペーション分析」や「複声部の対位法チェック」が含まれている場合は、他の指標と同じように" +
     "該当する時間的な文脈の中で触れてください(理論名・数値・聴取体験を結びつける)。含まれていない場合は無理に触れる必要はありません。" +
-    "事実に「記譜上の調号」「転調」「検出された和音の機能」「山場」「曲の構成」が含まれている場合も、他の指標と同様に、" +
-    "時間的な文脈の中で意味がある箇所でのみ触れてください。「記譜上の調号」と「キー推移」(推定)が食い違っている場合、" +
-    "それ自体が言及に値することもありますが、必須ではありません。「複数ファイルの結合における整合性の警告」が含まれている場合は、" +
-    "曲全体の解説の信頼性に軽く留保を添える程度にとどめ、警告自体を詳しく解説しないでください。" +
+    "事実に「記譜上の調号」「転調」「検出された和音の機能」「山場」「曲の構成」「使用音(ピッチクラス)の分布」" +
+    "「音価の内訳」「楽器編成の厚みの推移」が含まれている場合も、他の指標と同様に、時間的な文脈の中で意味がある箇所でのみ触れてください。" +
+    "「記譜上の調号」と「キー推移」(推定)が食い違っている場合、それ自体が言及に値することもありますが、必須ではありません。" +
+    "「使用音(ピッチクラス)の分布」に特定のスケール名が併記されている場合は、そのスケール名を積極的に使ってよく、" +
+    "「曲の構成」の記号列(A→B→A等)は、記号をそのまま読み上げるのではなく、どの区間とどの区間が似ていて、" +
+    "どこで新しい展開が始まるか、という形で言い換えてください。「楽器編成の厚みの推移」は、" +
+    "各パートがいつ参加するかという編成の積み上がり方として触れてください。「複数ファイルの結合における整合性の警告」が" +
+    "含まれている場合は、曲全体の解説の信頼性に軽く留保を添える程度にとどめ、警告自体を詳しく解説しないでください。" +
     "事実の冒頭に「解析対象パート」が示されている場合、それはこの解析が曲全体ではなく特定の楽器パートのみを対象にしていることを" +
     "意味します。曲やアンサンブル全体について語っているかのような書き方は避け、「ギターパートでは」のように、" +
     "どのパートについて述べているかが伝わる形で説明してください。示されていない場合(単一楽器の楽譜、または音声解析)は" +
@@ -158,9 +169,14 @@ const SYSTEM_PROMPT_REST: Record<Locale, string> = {
     'If the facts include a "meter/syncopation analysis" or a "counterpoint check", weave those in the same way, at ' +
     "the point in the timeline where they're relevant (theory name + number + listening experience together). If " +
     'they\'re not included, there is no need to force a mention. If the facts include a "notated key signature", ' +
-    '"modulations", "detected chord functions", a "climax", or a "song form" hypothesis, weave those in the same ' +
-    "way too — only where meaningful in the timeline, never forced. If the notated key signature and the " +
-    "(estimated) key timeline disagree, that may be worth a sentence, but isn't required. If a \"consistency " +
+    '"modulations", "detected chord functions", a "climax", a "song form" hypothesis, a "pitch-class distribution", ' +
+    'a "note-value breakdown", or an "instrumental build-up", weave those in the same way too — only where ' +
+    "meaningful in the timeline, never forced. If the notated key signature and the (estimated) key timeline " +
+    'disagree, that may be worth a sentence, but isn\'t required. If the "pitch-class distribution" names a specific ' +
+    'scale, feel free to use that scale\'s name directly. Don\'t just read out the "song form" section sequence ' +
+    '(A→B→A, etc.) verbatim — describe it as which stretches resemble each other and where genuinely new material ' +
+    'starts instead. Describe the "instrumental build-up" as the ensemble\'s texture layering in, i.e. which part ' +
+    'enters when. If a "consistency ' +
     'warning" from merging multiple files is included, just add a light caveat about the overall narrative\'s ' +
     "reliability rather than explaining the warning itself in detail. If an \"analyzed part(s)\" line appears at the top " +
     "of the facts, it means this analysis covers only a specific instrument part, not the whole song. Avoid writing " +
@@ -242,6 +258,10 @@ function isValidBody(body: unknown): body is SummarizeRequestBody {
     (b.modulations === undefined || Array.isArray(b.modulations)) &&
     (b.chordFunctions === undefined || Array.isArray(b.chordFunctions)) &&
     (b.songForm === undefined || b.songForm === null || typeof b.songForm === "object") &&
+    (b.pitchClassDistribution === undefined || Array.isArray(b.pitchClassDistribution)) &&
+    (b.scaleFit === undefined || b.scaleFit === null || typeof b.scaleFit === "object") &&
+    (b.noteValueBreakdown === undefined || Array.isArray(b.noteValueBreakdown)) &&
+    (b.instrumentBuildUp === undefined || b.instrumentBuildUp === null || typeof b.instrumentBuildUp === "object") &&
     (b.locale === undefined || b.locale === "ja" || b.locale === "en") &&
     (b.explanationLevel === undefined || b.explanationLevel === "beginner" || b.explanationLevel === "professional") &&
     (b.question === undefined || typeof b.question === "string") &&

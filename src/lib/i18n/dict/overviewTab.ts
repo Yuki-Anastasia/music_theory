@@ -1,4 +1,5 @@
 import type { Locale } from "../locale";
+import type { ScaleName } from "@/lib/theory/pitchClassProfile";
 
 interface OverviewTabDict {
   pianoRoll: { label: string; heading: string; description: string };
@@ -12,6 +13,8 @@ interface OverviewTabDict {
   bassCount: (n: number) => string;
   accompanimentCount: (n: number) => string;
   histogram: { label: string; heading: string; description: string };
+  scaleMatch: (root: string, scaleName: string, pct: string) => string;
+  scaleNames: Record<ScaleName, string>;
 }
 
 export const overviewTabDict: Record<Locale, OverviewTabDict> = {
@@ -40,6 +43,18 @@ export const overviewTabDict: Record<Locale, OverviewTabDict> = {
       heading: "ピッチクラス・ヒストグラム",
       description: "曲全体で各ピッチクラスが鳴っていた時間の合計です。",
     },
+    scaleMatch: (root, scaleName, pct) => `${root}${scaleName}の構成音と一致度${pct}%`,
+    scaleNames: {
+      major: "メジャースケール",
+      naturalMinor: "ナチュラルマイナースケール",
+      harmonicMinor: "ハーモニックマイナースケール",
+      dorian: "ドリアンスケール",
+      mixolydian: "ミクソリディアンスケール",
+      majorPentatonic: "メジャーペンタトニックスケール",
+      minorPentatonic: "マイナーペンタトニックスケール",
+      blues: "ブルーススケール",
+      wholeTone: "全音音階",
+    },
   },
   en: {
     pianoRoll: {
@@ -65,6 +80,18 @@ export const overviewTabDict: Record<Locale, OverviewTabDict> = {
       label: "PITCH-CLASS DISTRIBUTION",
       heading: "Pitch-Class Histogram",
       description: "Total sounding time for each pitch class across the whole song.",
+    },
+    scaleMatch: (root, scaleName, pct) => `Matches the notes of ${root} ${scaleName} (${pct}% coverage)`,
+    scaleNames: {
+      major: "major",
+      naturalMinor: "natural minor",
+      harmonicMinor: "harmonic minor",
+      dorian: "Dorian",
+      mixolydian: "Mixolydian",
+      majorPentatonic: "major pentatonic",
+      minorPentatonic: "minor pentatonic",
+      blues: "blues",
+      wholeTone: "whole tone",
     },
   },
 };

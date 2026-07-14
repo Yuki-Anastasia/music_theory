@@ -4,6 +4,7 @@ import PianoRollViewer from "@/components/PianoRollViewer";
 import SectionHeader from "@/components/analyze/SectionHeader";
 import type { NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
 import type { VoiceSeparation } from "@/lib/theory/voiceSeparation";
+import type { PitchClassShare, ScaleFitEstimate } from "@/lib/theory/pitchClassProfile";
 import { PITCH_CLASS_NAMES, midiToNoteName } from "@/lib/audio/pitch";
 import { useDict } from "@/lib/i18n/LocaleProvider";
 import { overviewTabDict } from "@/lib/i18n/dict/overviewTab";
@@ -20,10 +21,14 @@ export interface OverviewTabData {
   partComposition: [string, number][];
   /** Skyline-algorithm melody/bass/accompaniment split; null until events exist. */
   voices: VoiceSeparation | null;
+  /** Duration-weighted pitch-class usage, ranked by share; empty until events exist. */
+  pitchClassDistribution: PitchClassShare[];
+  /** Best-fitting named scale for the pitch-class content, if any; null until events exist. */
+  scaleFit: ScaleFitEstimate | null;
 }
 
 export default function OverviewTab({ data }: { data: OverviewTabData }) {
-  const { label, events, maxTime, histogram, histogramMax, partComposition, voices } = data;
+  const { label, events, maxTime, histogram, histogramMax, partComposition, voices, pitchClassDistribution, scaleFit } = data;
   const t = useDict(overviewTabDict);
 
   return (
@@ -74,6 +79,20 @@ export default function OverviewTab({ data }: { data: OverviewTabData }) {
             </div>
           ))}
         </div>
+        {pitchClassDistribution.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500">
+            {pitchClassDistribution.slice(0, 6).map((p) => (
+              <span key={p.pitchClass}>
+                {PITCH_CLASS_NAMES[p.pitchClass]} {(p.share * 100).toFixed(1)}%
+              </span>
+            ))}
+          </div>
+        )}
+        {scaleFit && scaleFit.confidence === "high" && (
+          <p className="mt-2 text-xs text-zinc-500">
+            {t.scaleMatch(PITCH_CLASS_NAMES[scaleFit.root], t.scaleNames[scaleFit.scaleName], (scaleFit.coverage * 100).toFixed(0))}
+          </p>
+        )}
       </div>
     </div>
   );

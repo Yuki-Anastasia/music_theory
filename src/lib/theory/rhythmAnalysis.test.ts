@@ -1,9 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { estimateTempo, rhythmicEntropy } from "./rhythmAnalysis";
+import { estimateTempo, rhythmicEntropy, noteValueBreakdown } from "./rhythmAnalysis";
 import { NormalizedNoteEvent } from "./normalizedEvents";
 
 function note(time: number): NormalizedNoteEvent {
   return { time, durationSeconds: 0.2, midiNote: 60, pitchClass: 0, confidence: 1 };
+}
+
+function noteWithDuration(durationSeconds: number): NormalizedNoteEvent {
+  return { time: 0, durationSeconds, midiNote: 60, pitchClass: 0, confidence: 1 };
 }
 
 describe("estimateTempo", () => {
@@ -55,5 +59,39 @@ describe("rhythmicEntropy", () => {
 
   it("returns zeros for fewer than 2 events", () => {
     expect(rhythmicEntropy([note(0)])).toEqual({ entropyBits: 0, maxEntropyBits: 0 });
+  });
+});
+
+describe("noteValueBreakdown", () => {
+  const TEMPO_BPM = 120; // quarter note = 0.5s
+
+  it("returns an empty list for no events or an unknown tempo", () => {
+    expect(noteValueBreakdown([], TEMPO_BPM)).toEqual([]);
+    expect(noteValueBreakdown([noteWithDuration(0.5)], 0)).toEqual([]);
+  });
+
+  it("classifies exact durations to their matching named value", () => {
+    const events = [
+      ...Array.from({ length: 3 }, () => noteWithDuration(0.125)), // sixteenth
+      ...Array.from({ length: 2 }, () => noteWithDuration(0.25)), // eighth
+      noteWithDuration(0.5), // quarter
+      noteWithDuration(1.0), // half
+    ];
+    const breakdown = noteValueBreakdown(events, TEMPO_BPM);
+    // "half" precedes "quarter" in the template catalog, and ties preserve
+    // that order under a stable sort.
+    expect(breakdown).toEqual([
+      { name: "sixteenth", count: 3 },
+      { name: "eighth", count: 2 },
+      { name: "half", count: 1 },
+      { name: "quarter", count: 1 },
+    ]);
+  });
+
+  it("classifies a triplet-ratio duration to the nearest triplet value, not the nearest straight value", () => {
+    // An eighth-note triplet is 1/3 of a beat = ~0.1667s at 120bpm -- closer
+    // in log2-ratio terms to the eighth-triplet template than to a sixteenth.
+    const breakdown = noteValueBreakdown([noteWithDuration(0.5 / 3)], TEMPO_BPM);
+    expect(breakdown).toEqual([{ name: "eighthTriplet", count: 1 }]);
   });
 });
