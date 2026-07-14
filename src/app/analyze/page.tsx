@@ -353,28 +353,54 @@ export default function AnalyzeSongPage() {
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8">
-      <div className="relative overflow-hidden">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-0 hidden w-56 text-navy opacity-[0.12] lg:block"
-        >
-          <WaveformFragment className="h-full w-full" />
+      <div className="flex flex-col gap-6">
+        <div>
+          <p className="text-xs font-medium tracking-[0.15em] text-navy">INPUT</p>
+          <h1 className="mt-1 text-2xl font-semibold">{t.intro.heading}</h1>
+          <p className="mt-2 text-sm text-zinc-500">{t.intro.description}</p>
         </div>
 
-        <div className="relative flex max-w-xl flex-col gap-6">
-          <div>
-            <p className="text-xs font-medium tracking-[0.15em] text-navy">INPUT</p>
-            <h1 className="mt-1 text-2xl font-semibold">{t.intro.heading}</h1>
-            <p className="mt-2 text-sm text-zinc-500">{t.intro.description}</p>
+        <div>
+          <p className="text-xs font-medium tracking-[0.15em] text-navy">{t.source.label}</p>
+          <h2 className="mt-1 text-base font-semibold">{t.source.heading}</h2>
+        </div>
+
+        <div className="grid grid-cols-1 divide-y divide-zinc-200 border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+          <div className="relative flex flex-col gap-4 overflow-hidden p-6">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute right-4 top-4 h-10 w-28 text-navy opacity-[0.12]"
+            >
+              <WaveformFragment className="h-full w-full" />
+            </div>
+
+            <div className="relative flex flex-1 flex-col gap-4">
+              <div>
+                <p className="text-xs font-medium tracking-[0.15em] text-navy">{t.audio.label}</p>
+                <h3 className="mt-1 text-base font-semibold">{t.audio.heading}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-zinc-500">{t.audio.description}</p>
+              </div>
+              <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
+            </div>
           </div>
 
-          <SongUploader onReady={handleReady} disabled={status === "analyzing"} />
+          <div className="relative flex flex-col gap-4 overflow-hidden p-6">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute right-4 top-4 h-10 w-28 text-navy opacity-[0.12]"
+            >
+              <StaffFragment className="h-full w-full" />
+            </div>
 
-          <div className="border-t border-zinc-200 pt-4 text-xs text-zinc-400 dark:border-zinc-800">
-            {t.orScoreDivider}
+            <div className="relative flex flex-1 flex-col gap-4">
+              <div>
+                <p className="text-xs font-medium tracking-[0.15em] text-navy">{t.score.label}</p>
+                <h3 className="mt-1 text-base font-semibold">{t.score.heading}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-zinc-500">{t.score.description}</p>
+              </div>
+              <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
+            </div>
           </div>
-
-          <ScoreUploader onReady={handleScoreReady} disabled={status === "analyzing"} />
         </div>
       </div>
 

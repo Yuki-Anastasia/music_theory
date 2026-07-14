@@ -60,7 +60,7 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer rounded-full border border-zinc-300 px-4 py-1.5 text-xs font-medium disabled:opacity-50 dark:border-zinc-700">
+        <label className="cursor-pointer rounded-full bg-foreground px-5 py-2 font-medium text-background">
           {t.chooseFile}
           <input
             type="file"
@@ -73,7 +73,7 @@ export default function ScoreUploader({ onReady, disabled }: ScoreUploaderProps)
         </label>
         {parseState === "parsing" && <span className="text-xs text-zinc-500">{t.parsing}</span>}
       </div>
-      <p className="text-xs leading-relaxed text-zinc-500">{t.description}</p>
+      <p className="text-[11px] leading-relaxed text-zinc-400">{t.description}</p>
       {parseState === "error" && errorMessage && <p className="text-sm text-red-500">{errorMessage}</p>}
     </div>
   );

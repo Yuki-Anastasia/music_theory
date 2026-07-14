@@ -5,7 +5,9 @@ type TabId = "overview" | "tonality" | "harmony" | "expression" | "ai";
 interface AnalyzeShellDict {
   tabs: Record<TabId, string>;
   intro: { heading: string; description: string };
-  orScoreDivider: string;
+  source: { label: string; heading: string };
+  audio: { label: string; heading: string; description: string };
+  score: { label: string; heading: string; description: string };
   analyzing: (label: string | null) => string;
   elapsed: (seconds: string) => string;
   overTarget: string;
@@ -20,9 +22,24 @@ export const analyzeShellDict: Record<Locale, AnalyzeShellDict> = {
     intro: {
       heading: "曲を解析する",
       description:
-        "曲ファイルをアップロードするか、マイクで録音してください。Basic Pitch(ブラウザ内、和音・複数声部対応)で解析し、音符のタイムラインを表示します。1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。",
+        "音声ファイルのアップロード・マイク録音、または楽譜データのインポートから曲を解析し、調性・和声・リズムなどのタイムラインを表示します。1〜6分の曲で目安30秒以内に処理しますが、環境によってはそれ以上かかる場合があります。",
     },
-    orScoreDivider: "または、楽譜データから精密に解析",
+    source: {
+      label: "ANALYSIS SOURCE",
+      heading: "解析方法を選択",
+    },
+    audio: {
+      label: "AUDIO",
+      heading: "音声から解析",
+      description:
+        "ファイルをアップロードするか、マイクで録音してください。Basic Pitch(ブラウザ内AI、和音・複数声部対応)でピッチ・リズム・強弱などを推定します。",
+    },
+    score: {
+      label: "SCORE",
+      heading: "楽譜から解析",
+      description:
+        "MusicXMLやGuitar Proの楽譜データを直接読み込みます。記譜・パート・調・コードネームを音声解析を介さずそのまま解析します。",
+    },
     analyzing: (label) => `解析中: ${label}`,
     elapsed: (s) => `${s}s経過`,
     overTarget: "(目安の30秒を超えています)",
@@ -40,9 +57,24 @@ export const analyzeShellDict: Record<Locale, AnalyzeShellDict> = {
     intro: {
       heading: "Analyze a Song",
       description:
-        "Upload a song file, or record from your mic. It's analyzed with Basic Pitch (an in-browser model supporting chords and multiple voices) and shown as a note timeline. Songs 1–6 minutes long usually process within about 30 seconds, though it can take longer depending on your environment.",
+        "Analyze a song from an uploaded audio file, a mic recording, or imported score data, and see a timeline of its tonality, harmony, and rhythm. Songs 1–6 minutes long usually process within about 30 seconds, though it can take longer depending on your environment.",
     },
-    orScoreDivider: "Or, for precise analysis, use score data",
+    source: {
+      label: "ANALYSIS SOURCE",
+      heading: "Choose an Analysis Source",
+    },
+    audio: {
+      label: "AUDIO",
+      heading: "From Audio",
+      description:
+        "Upload a file, or record from your mic. Basic Pitch (an in-browser model supporting chords and multiple voices) estimates pitch, rhythm, and dynamics.",
+    },
+    score: {
+      label: "SCORE",
+      heading: "From Score",
+      description:
+        "Import MusicXML or Guitar Pro data directly. Notation, parts, keys, and chord symbols are analyzed as written, without going through audio.",
+    },
     analyzing: (label) => `Analyzing: ${label}`,
     elapsed: (s) => `${s}s elapsed`,
     overTarget: "(over the ~30s target)",

@@ -31,14 +31,12 @@ export const uploadersDict: Record<Locale, UploadersDict> = {
       micDenied: "マイクの権限が拒否されました。ブラウザの設定を確認してください。",
     },
     score: {
-      chooseFile: "楽譜/タブ譜ファイルを選択(複数可)",
+      chooseFile: "楽譜/タブ譜ファイルを選択",
       parsing: "解析中…",
       description:
-        "Finale/Sibelius/Dorico/MuseScoreなどからエクスポートした.musicxml/.xml/.mxlファイル、または" +
-        "Guitar Proのタブ譜ファイル(.gp3/.gp4/.gp5/.gpx/.gp)を読み込みます。" +
-        "音声を経由せず、記譜データそのものを解析するため、和音のピッチ推定に音声解析特有の誤りが生じません。" +
-        "複数ファイルを同時に選択すると(例:ギター・ベース・ドラムをそれぞれ別ファイルでエクスポートした場合)、" +
-        "1つの曲として結合して解析します。ファイル間で長さ・テンポ・調・拍子が大きく異なる場合は警告を表示します。",
+        ".musicxml/.xml/.mxl、またはGuitar Pro(.gp3/.gp4/.gp5/.gpx/.gp)に対応。" +
+        "複数ファイル(例:ギター・ベース・ドラムを別々に書き出した場合)は1曲として結合し、" +
+        "ズレがあれば読み込み後に警告します。",
     },
     partSelector: {
       label: "PART SELECTION",
@@ -57,14 +55,11 @@ export const uploadersDict: Record<Locale, UploadersDict> = {
       micDenied: "Microphone access was denied. Please check your browser settings.",
     },
     score: {
-      chooseFile: "Choose score/tab files (multiple OK)",
+      chooseFile: "Choose score/tab files",
       parsing: "Parsing…",
       description:
-        "Loads a .musicxml/.xml/.mxl file exported from Finale/Sibelius/Dorico/MuseScore, or a Guitar Pro tab " +
-        "file (.gp3/.gp4/.gp5/.gpx/.gp). Since it reads notated data directly rather than going through audio, " +
-        "it avoids the pitch-estimation errors specific to audio transcription. Selecting multiple files at once " +
-        "(e.g. Guitar/Bass/Drums each exported separately) merges them into one combined song. A warning is shown " +
-        "if duration, tempo, key, or meter differ significantly between files.",
+        "Accepts .musicxml/.xml/.mxl or Guitar Pro (.gp3/.gp4/.gp5/.gpx/.gp). Multiple files (e.g. separate " +
+        "guitar/bass/drums exports) are merged into one song; mismatches are flagged after import.",
     },
     partSelector: {
       label: "PART SELECTION",
