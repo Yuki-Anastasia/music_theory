@@ -14,6 +14,8 @@ interface AiExplanationTabDict {
   sending: string;
   followUpErrorFallback: string;
   level: { beginner: string; professional: string };
+  undoEdit: string;
+  editChangeLog: (counts: { added: number; edited: number; removed: number; skipped: number }) => string;
 }
 
 export const aiExplanationTabDict: Record<Locale, AiExplanationTabDict> = {
@@ -31,6 +33,9 @@ export const aiExplanationTabDict: Record<Locale, AiExplanationTabDict> = {
     sending: "送信中…",
     followUpErrorFallback: "質問への回答生成に失敗しました",
     level: { beginner: "初心者向け", professional: "専門家向け" },
+    undoEdit: "直前のAI編集を元に戻す",
+    editChangeLog: ({ added, edited, removed, skipped }) =>
+      `変更内容: 追加${added}件、編集${edited}件、削除${removed}件${skipped > 0 ? `(スキップ${skipped}件)` : ""}`,
   },
   en: {
     label: "READING",
@@ -46,5 +51,8 @@ export const aiExplanationTabDict: Record<Locale, AiExplanationTabDict> = {
     sending: "Sending…",
     followUpErrorFallback: "Failed to generate a reply",
     level: { beginner: "Beginner", professional: "Professional" },
+    undoEdit: "Undo last AI edit",
+    editChangeLog: ({ added, edited, removed, skipped }) =>
+      `Changes: ${added} added, ${edited} edited, ${removed} removed${skipped > 0 ? ` (${skipped} skipped)` : ""}`,
   },
 };

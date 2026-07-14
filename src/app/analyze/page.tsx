@@ -43,6 +43,9 @@ import { separateVoices } from "@/lib/theory/voiceSeparation";
 import { estimateSongArc } from "@/lib/theory/songArc";
 import { analyzeMeter } from "@/lib/theory/meterAnalysis";
 import { analyzeCounterpoint } from "@/lib/theory/counterpoint";
+import { applyScoreEdits, summarizeAppliedEdits } from "@/lib/theory/scoreEdits";
+import { parseToolEditBatches } from "@/lib/theory/editableNotesPrompt";
+import type { EditableNoteDTO } from "@/lib/theory/editableNotesPrompt";
 import { useDict, useLocale } from "@/lib/i18n/LocaleProvider";
 import { analyzeShellDict } from "@/lib/i18n/dict/analyzeShell";
 
@@ -66,6 +69,11 @@ function formatTime(seconds: number): string {
 function formatNotatedKeySegments(timeline: NotatedKeyPoint[], durationSec: number): string {
   const segments = collapseKeySegments(timeline, durationSec, (p) => p, () => false);
   return segments.map((s) => `${formatTime(s.start)}-${formatTime(s.end)} ${s.label}`).join(", ");
+}
+
+/** Assigns a stable id to every note on first parse, so a later AI edit can reference an exact note (see scoreEdits.ts). */
+function withIds(events: NormalizedNoteEvent[]): NormalizedNoteEvent[] {
+  return events.map((e) => ({ ...e, id: e.id ?? crypto.randomUUID() }));
 }
 
 const TAB_ORDER: TabId[] = ["overview", "tonality", "harmony", "expression", "ai"];
@@ -114,6 +122,8 @@ export default function AnalyzeSongPage() {
   const [notatedTempoBpm, setNotatedTempoBpm] = useState<number | null>(null);
   // Which of scorePartNames are currently included in the analysis; empty/unused for audio-transcribed input (no partLabel there).
   const [selectedParts, setSelectedParts] = useState<Set<string>>(new Set());
+  // The pre-edit snapshot of parsedEvents, for a single-level "undo last AI edit" — not a full undo/redo stack.
+  const [preEditSnapshot, setPreEditSnapshot] = useState<NormalizedNoteEvent[] | null>(null);
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -129,13 +139,14 @@ export default function AnalyzeSongPage() {
     setSelectedParts(new Set());
     setPercussionOnsets([]);
     setNotatedTempoBpm(null);
+    setPreEditSnapshot(null);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
         setProgress(fraction);
         setElapsedMs(ms);
       });
-      setParsedEvents(notesToNormalizedEvents(notes));
+      setParsedEvents(withIds(notesToNormalizedEvents(notes)));
       setStatus("done");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -147,7 +158,7 @@ export default function AnalyzeSongPage() {
     setStatus("done");
     setLabel(sourceLabel);
     setErrorMessage(null);
-    setParsedEvents(analysis.events);
+    setParsedEvents(withIds(analysis.events));
     setNotatedKeyTimeline(analysis.notatedKeyTimeline);
     setNotatedChordTimeline(analysis.notatedChordTimeline);
     setMeterTimeline(analysis.meterTimeline);
@@ -156,6 +167,7 @@ export default function AnalyzeSongPage() {
     setSelectedParts(new Set(analysis.partNames)); // all parts included by default
     setPercussionOnsets(analysis.percussionOnsets);
     setNotatedTempoBpm(analysis.notatedTempoBpm);
+    setPreEditSnapshot(null);
   };
 
   const togglePart = (name: string) => {
@@ -201,6 +213,7 @@ export default function AnalyzeSongPage() {
     instrumentBuildUp,
     locale,
     explanationLevel,
+    editableNotes,
   });
 
   const handleGenerateSummary = async () => {
@@ -235,12 +248,38 @@ export default function AnalyzeSongPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? aiT.followUpErrorFallback);
-      setAiMessages((prev) => [...prev, { role: "assistant", text: data.summary }]);
+
+      // Any edits Claude proposed are applied here, client-side, immediately
+      // — not via a tool_result round trip back to Claude (see the comment
+      // in route.ts for why that's safe to skip). The change-log below is
+      // synthesized from the actual applied/skipped results, not from
+      // Claude's own account of what it did.
+      let changeLog: string | undefined;
+      const scoreEdits = parseToolEditBatches(data.edits ?? []);
+      if (scoreEdits.length > 0) {
+        const result = applyScoreEdits(parsedEvents, scoreEdits, {
+          allowedPartLabels: includedParts.length > 0 ? includedParts : undefined,
+        });
+        const summary = summarizeAppliedEdits(result.applied);
+        changeLog = aiT.editChangeLog(summary);
+        if (summary.added + summary.edited + summary.removed > 0) {
+          setPreEditSnapshot(parsedEvents);
+          setParsedEvents(result.events);
+        }
+      }
+
+      setAiMessages((prev) => [...prev, { role: "assistant", text: data.summary, ...(changeLog ? { changeLog } : {}) }]);
       setFollowUpStatus("idle");
     } catch (err) {
       setFollowUpError(err instanceof Error ? err.message : String(err));
       setFollowUpStatus("error");
     }
+  };
+
+  const handleUndoEdit = () => {
+    if (preEditSnapshot === null) return;
+    setParsedEvents(preEditSnapshot);
+    setPreEditSnapshot(null);
   };
 
   // Filters raw parsed events down to the currently-selected parts. Only
@@ -342,6 +381,19 @@ export default function AnalyzeSongPage() {
   // summary so it names which instrument(s) the analysis covers, in case
   // the user deselected some parts (see PartSelector).
   const includedParts = scorePartNames.filter((name) => selectedParts.has(name));
+  // The currently-selected notes, exposed to a follow-up question so the AI
+  // can target a specific note by id (see scoreEdits.ts). Built from
+  // `events` (the selectedParts-filtered view), not `parsedEvents` — so the
+  // AI can never reference or edit a note belonging to a deselected part.
+  const editableNotes: EditableNoteDTO[] = events
+    .filter((e): e is NormalizedNoteEvent & { id: string } => e.id !== undefined)
+    .map((e) => ({
+      id: e.id,
+      time: e.time,
+      durationSeconds: e.durationSeconds,
+      midiNote: e.midiNote,
+      ...(e.partLabel !== undefined ? { partLabel: e.partLabel } : {}),
+    }));
 
   const notatedKeyText = notatedKeyTimeline.length > 0 ? formatNotatedKeySegments(notatedKeyTimeline, maxTime) : null;
   const notatedChordText =
@@ -535,6 +587,8 @@ export default function AnalyzeSongPage() {
                 onAskFollowUp: handleAskFollowUp,
                 explanationLevel,
                 onChangeExplanationLevel: setExplanationLevel,
+                canUndoEdit: preEditSnapshot !== null,
+                onUndoEdit: handleUndoEdit,
               }}
             />
           )}

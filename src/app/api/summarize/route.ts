@@ -20,6 +20,8 @@ import type { InstrumentBuildUp } from "@/lib/theory/instrumentDensity";
 import type { Locale } from "@/lib/i18n/locale";
 import type { ExplanationLevel } from "@/lib/explanationLevel";
 import { DEFAULT_EXPLANATION_LEVEL } from "@/lib/explanationLevel";
+import type { EditableNoteDTO } from "@/lib/theory/editableNotesPrompt";
+import { buildScoreEditTools, buildEditableNotesListing } from "@/lib/theory/editableNotesPrompt";
 
 interface SummarizeRequestBody {
   label: string;
@@ -50,6 +52,8 @@ interface SummarizeRequestBody {
   history?: ConversationTurn[];
   /** The user's follow-up question. Omitted for the initial "generate" call, which asks for the standard two-part explanation instead. */
   question?: string;
+  /** The currently-selected notes (see analyze/page.tsx's `events`), exposed so a follow-up question can ask for an edit. Only used/sent when `question` is present. */
+  editableNotes?: EditableNoteDTO[];
 }
 
 interface ConversationTurn {
@@ -207,6 +211,28 @@ const SYSTEM_PROMPT_REST: Record<Locale, string> = {
     "while noting that this is one interpretation based on the analysis, not the only correct answer.",
 };
 
+const EDITABLE_NOTES_LABEL: Record<Locale, string> = {
+  ja: "編集可能なノート一覧(id/開始時刻/長さ/音高/パート):",
+  en: "Editable notes (id/time/duration/pitch/part):",
+};
+
+/** Only appended when a follow-up question offers editing tools (see the `body.question` branch in POST below) — the initial "generate" call never sees this. */
+const TOOL_USE_GUIDANCE: Record<Locale, string> = {
+  ja:
+    "上のノート一覧にあるノートを追加・変更・削除するツールが利用できます。" +
+    "ユーザーが明示的に変更を求めた場合にのみツールを使用してください" +
+    "(例:「このパラレル5度を直して」「旋律を全音上げて」)。" +
+    "既存のノートを参照する際は、一覧にある正確なidのみを使い、idを作り出さないでください。" +
+    "関連する変更はできるだけ1回のツール呼び出しにまとめてください。" +
+    "ツールを呼び出す場合も、何をどう変更したかを短い一文で必ず説明してください。",
+  en:
+    "You have tools to add, change, or remove notes from the note list above. " +
+    'Only use them when the user explicitly asks for a change (e.g. "fix this parallel fifth", ' +
+    '"transpose the melody up a whole step"). When referencing an existing note, use only an exact id ' +
+    "from the list — never invent one. Batch related changes into as few tool calls as possible. " +
+    "Whenever you call a tool, always include a short sentence describing what you changed.",
+};
+
 const API_MESSAGES: Record<Locale, { badJson: string; missingFields: string; noApiKey: string; rateLimited: string; badApiKey: string; genericFailure: string }> = {
   ja: {
     badJson: "リクエストボディがJSONとして解析できません",
@@ -265,7 +291,25 @@ function isValidBody(body: unknown): body is SummarizeRequestBody {
     (b.locale === undefined || b.locale === "ja" || b.locale === "en") &&
     (b.explanationLevel === undefined || b.explanationLevel === "beginner" || b.explanationLevel === "professional") &&
     (b.question === undefined || typeof b.question === "string") &&
-    (b.history === undefined || isValidHistory(b.history))
+    (b.history === undefined || isValidHistory(b.history)) &&
+    (b.editableNotes === undefined || isValidEditableNotes(b.editableNotes))
+  );
+}
+
+function isValidEditableNotes(notes: unknown): notes is EditableNoteDTO[] {
+  return (
+    Array.isArray(notes) &&
+    notes.every((n) => {
+      if (typeof n !== "object" || n === null) return false;
+      const note = n as Record<string, unknown>;
+      return (
+        typeof note.id === "string" &&
+        typeof note.time === "number" &&
+        typeof note.durationSeconds === "number" &&
+        typeof note.midiNote === "number" &&
+        (note.partLabel === undefined || typeof note.partLabel === "string")
+      );
+    })
   );
 }
 
@@ -303,16 +347,30 @@ export async function POST(req: Request) {
 
   const facts = buildAnalysisFacts(body);
   const level = body.explanationLevel ?? DEFAULT_EXPLANATION_LEVEL;
-  const systemPrompt = [SYSTEM_PROMPT_INTRO[locale], LEVEL_GUIDANCE[locale][level], SYSTEM_PROMPT_REST[locale]].join(
-    "\n\n"
-  );
 
-  // Turn 1 is always the facts; any prior conversation (the initial
-  // explanation plus earlier follow-ups) replays in order, and a new
-  // question - if present - is appended last. When history/question are
-  // both absent, this is just the original single-turn "generate" call.
+  // Editing tools are only ever offered on a follow-up call (body.question
+  // present) — the initial "generate" call's prompt/response stays exactly
+  // as it was before this feature existed, so it carries zero regression
+  // risk from adding editing.
+  const isFollowUp = body.question !== undefined;
+  const tools = isFollowUp ? buildScoreEditTools(body.includedParts ?? []) : undefined;
+  const notesListing = isFollowUp ? buildEditableNotesListing(body.editableNotes ?? []) : null;
+
+  const systemPrompt = isFollowUp
+    ? [SYSTEM_PROMPT_INTRO[locale], LEVEL_GUIDANCE[locale][level], SYSTEM_PROMPT_REST[locale], TOOL_USE_GUIDANCE[locale]].join(
+        "\n\n"
+      )
+    : [SYSTEM_PROMPT_INTRO[locale], LEVEL_GUIDANCE[locale][level], SYSTEM_PROMPT_REST[locale]].join("\n\n");
+
+  const turnOneContent = notesListing ? `${facts}\n\n${EDITABLE_NOTES_LABEL[locale]}\n${notesListing}` : facts;
+
+  // Turn 1 is always the facts (plus the editable-notes listing, on a
+  // follow-up); any prior conversation (the initial explanation plus
+  // earlier follow-ups) replays in order, and a new question - if present -
+  // is appended last. When history/question are both absent, this is just
+  // the original single-turn "generate" call.
   const conversationMessages: ConversationTurn[] = [
-    { role: "user", content: facts },
+    { role: "user", content: turnOneContent },
     ...(body.history ?? []),
     ...(body.question ? [{ role: "user" as const, content: body.question }] : []),
   ];
@@ -321,13 +379,31 @@ export async function POST(req: Request) {
     const client = new Anthropic();
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 1600,
+      max_tokens: isFollowUp ? 4096 : 1600,
       system: systemPrompt,
       messages: conversationMessages,
+      ...(tools ? { tools } : {}),
     });
 
+    if (response.stop_reason === "refusal") {
+      return Response.json({ error: errorMessages.genericFailure }, { status: 500 });
+    }
+
     const textBlock = response.content.find((block) => block.type === "text");
-    return Response.json({ summary: textBlock?.text ?? "" });
+    // Structured edit proposals, if any — applied client-side (see
+    // analyze/page.tsx) rather than via a tool_result round trip back to
+    // Claude. That round trip is unnecessary here (and would double
+    // latency/cost per turn): `ConversationTurn.content` below is always a
+    // plain string, and page.tsx's history replay
+    // (`aiMessages.map(m => ({role: m.role, content: m.text}))`) always
+    // flattens prior assistant turns to plain text before resending them —
+    // so a tool_use block can never end up unresolved in a later request.
+    // If conversation history is ever changed to replay structured content
+    // blocks instead, this reasoning would need revisiting.
+    const editBlocks = isFollowUp ? response.content.filter((block) => block.type === "tool_use") : [];
+    const edits = editBlocks.map((block) => ({ tool: block.name, input: block.input }));
+
+    return Response.json({ summary: textBlock?.text ?? "", edits });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
       return Response.json({ error: errorMessages.rateLimited }, { status: 429 });

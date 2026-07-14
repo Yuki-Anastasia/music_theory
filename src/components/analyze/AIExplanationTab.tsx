@@ -12,6 +12,8 @@ export type FollowUpStatus = "idle" | "loading" | "error";
 export interface AIExplanationMessage {
   role: "assistant" | "user";
   text: string;
+  /** A synthesized (not model-authored) summary of any score edits applied alongside this message — see scoreEdits.ts. */
+  changeLog?: string;
 }
 
 export interface AIExplanationTabData {
@@ -24,6 +26,8 @@ export interface AIExplanationTabData {
   onAskFollowUp: (question: string) => void;
   explanationLevel: ExplanationLevel;
   onChangeExplanationLevel: (level: ExplanationLevel) => void;
+  canUndoEdit: boolean;
+  onUndoEdit: () => void;
 }
 
 const LEVELS: ExplanationLevel[] = ["beginner", "professional"];
@@ -40,6 +44,8 @@ export default function AIExplanationTab({ data }: { data: AIExplanationTabData 
     onAskFollowUp,
     explanationLevel,
     onChangeExplanationLevel,
+    canUndoEdit,
+    onUndoEdit,
   } = data;
   const t = useDict(aiExplanationTabDict);
   const [question, setQuestion] = useState("");
@@ -89,9 +95,12 @@ export default function AIExplanationTab({ data }: { data: AIExplanationTabData 
           <div className="flex flex-col gap-4">
             {messages.map((message, i) =>
               message.role === "assistant" ? (
-                <p key={i} className="whitespace-pre-wrap text-sm leading-loose">
-                  {message.text}
-                </p>
+                <div key={i}>
+                  <p className="whitespace-pre-wrap text-sm leading-loose">{message.text}</p>
+                  {message.changeLog && (
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-zinc-400">{message.changeLog}</p>
+                  )}
+                </div>
               ) : (
                 <p key={i} className="text-sm font-medium">
                   <span className="text-zinc-400">{t.userLabel}: </span>
@@ -101,6 +110,15 @@ export default function AIExplanationTab({ data }: { data: AIExplanationTabData 
             )}
           </div>
           <p className="mt-3 text-xs text-zinc-400">{t.footer}</p>
+
+          {canUndoEdit && (
+            <button
+              onClick={onUndoEdit}
+              className="mt-3 rounded-full border border-zinc-300 px-3 py-1 text-xs text-zinc-500 transition-colors hover:text-zinc-900 dark:border-zinc-700 dark:hover:text-zinc-100"
+            >
+              {t.undoEdit}
+            </button>
+          )}
 
           {followUpStatus === "error" && followUpError && <p className="mt-3 text-sm text-red-500">{followUpError}</p>}
 
