@@ -4,6 +4,7 @@ import { useState } from "react";
 import SectionHeader from "@/components/analyze/SectionHeader";
 import { useDict } from "@/lib/i18n/LocaleProvider";
 import { aiExplanationTabDict } from "@/lib/i18n/dict/aiExplanationTab";
+import type { ExplanationLevel } from "@/lib/explanationLevel";
 
 export type SummaryStatus = "idle" | "loading" | "done" | "error";
 export type FollowUpStatus = "idle" | "loading" | "error";
@@ -21,11 +22,25 @@ export interface AIExplanationTabData {
   followUpStatus: FollowUpStatus;
   followUpError: string | null;
   onAskFollowUp: (question: string) => void;
+  explanationLevel: ExplanationLevel;
+  onChangeExplanationLevel: (level: ExplanationLevel) => void;
 }
+
+const LEVELS: ExplanationLevel[] = ["beginner", "professional"];
 
 /** A concluding interpretation of the computed analysis above, refined through follow-up questions rather than a one-shot reading. */
 export default function AIExplanationTab({ data }: { data: AIExplanationTabData }) {
-  const { summaryStatus, summaryError, onGenerateSummary, messages, followUpStatus, followUpError, onAskFollowUp } = data;
+  const {
+    summaryStatus,
+    summaryError,
+    onGenerateSummary,
+    messages,
+    followUpStatus,
+    followUpError,
+    onAskFollowUp,
+    explanationLevel,
+    onChangeExplanationLevel,
+  } = data;
   const t = useDict(aiExplanationTabDict);
   const [question, setQuestion] = useState("");
 
@@ -40,13 +55,31 @@ export default function AIExplanationTab({ data }: { data: AIExplanationTabData 
     <div>
       <SectionHeader label={t.label} heading={t.heading} description={t.description} />
       {messages.length === 0 && (
-        <button
-          onClick={onGenerateSummary}
-          disabled={summaryStatus === "loading"}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background disabled:opacity-50"
-        >
-          {summaryStatus === "loading" ? t.generating : t.generate}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={onGenerateSummary}
+            disabled={summaryStatus === "loading"}
+            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background disabled:opacity-50"
+          >
+            {summaryStatus === "loading" ? t.generating : t.generate}
+          </button>
+          <div className="flex gap-1 text-xs">
+            {LEVELS.map((level) => (
+              <button
+                key={level}
+                onClick={() => onChangeExplanationLevel(level)}
+                disabled={summaryStatus === "loading"}
+                className={
+                  explanationLevel === level
+                    ? "rounded-full bg-foreground px-3 py-1 text-background"
+                    : "rounded-full border border-zinc-300 px-3 py-1 text-zinc-500 transition-colors hover:text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:hover:text-zinc-100"
+                }
+              >
+                {t.level[level]}
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {summaryStatus === "error" && summaryError && <p className="mt-3 text-sm text-red-500">{summaryError}</p>}

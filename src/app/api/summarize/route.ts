@@ -15,6 +15,8 @@ import type { ModulationEvent } from "@/lib/theory/modulation";
 import type { ChordFunctionPoint } from "@/lib/theory/chordFunction";
 import type { RecurrenceMatch } from "@/lib/theory/songForm";
 import type { Locale } from "@/lib/i18n/locale";
+import type { ExplanationLevel } from "@/lib/explanationLevel";
+import { DEFAULT_EXPLANATION_LEVEL } from "@/lib/explanationLevel";
 
 interface SummarizeRequestBody {
   label: string;
@@ -36,6 +38,7 @@ interface SummarizeRequestBody {
   chordFunctions?: ChordFunctionPoint[];
   songForm?: RecurrenceMatch | null;
   locale?: Locale;
+  explanationLevel?: ExplanationLevel;
   /** Prior conversation turns (assistant's initial explanation + any earlier follow-up Q&A), oldest first. Empty/omitted for the initial "generate" call. */
   history?: ConversationTurn[];
   /** The user's follow-up question. Omitted for the initial "generate" call, which asks for the standard two-part explanation instead. */
@@ -47,12 +50,55 @@ interface ConversationTurn {
   content: string;
 }
 
-const SYSTEM_PROMPT: Record<Locale, string> = {
+const SYSTEM_PROMPT_INTRO: Record<Locale, string> = {
   ja:
     "あなたは音楽理論の解説者です。以下は曲を数学的に解析して得られた確定的な事実です。" +
     "この事実だけを根拠に、曲の特徴を合計400字程度の自然な日本語の文章で説明してください。" +
-    "見出しや箇条書きには分けず、時系列に沿った一つの流れとして書いてください。" +
-    "\n\n" +
+    "見出しや箇条書きには分けず、時系列に沿った一つの流れとして書いてください。",
+  en:
+    "You are a music theory commentator. Below are established facts obtained by mathematically analyzing a song. " +
+    "Using only these facts, describe the song's character in natural English prose, about 250-300 words total. " +
+    "Do not split it into headed sections or bullet points — write it as a single flow, in chronological order.",
+};
+
+/**
+ * The one axis that actually differs between beginner/professional mode:
+ * how much jargon the narrative assumes vs. glosses. Everything else
+ * (grounding rules, structure, follow-up behavior) is level-invariant and
+ * lives in SYSTEM_PROMPT_REST, so a change to those rules only needs to be
+ * made once rather than kept in sync across two full prompt copies.
+ */
+const LEVEL_GUIDANCE: Record<Locale, Record<ExplanationLevel, string>> = {
+  ja: {
+    beginner:
+      "読み手には音楽理論の知識がないかもしれない、という前提で書いてください。" +
+      "「協和度」「エントロピー」「声部進行」「自己相関」「ローマ数字によるコード機能」のような専門用語や理論名を使うときは、" +
+      "その用語が最初に出てくる箇所で、日常的な言葉で一言だけ意味を添えてください" +
+      "(例:「予測可能性(次にどの音が来るか読みやすいかを表す指標)」)。" +
+      "同じ文の中に説明のない専門用語を何個も並べないでください。数式そのものを提示する必要はなく、" +
+      "その指標が実際に何を捉えているかを平易な言葉で伝えることを優先してください。",
+    professional:
+      "読み手は音楽理論・情報理論にある程度慣れているという前提で書いてよく、" +
+      "オイラーの快さの尺度・シャノンの情報エントロピー・声部進行の距離・自己相関といった理論名や" +
+      "ローマ数字によるコード機能表記を、都度説明を挟まずそのまま使って構いません。",
+  },
+  en: {
+    beginner:
+      "Write for a reader who may have no music theory background. When you introduce a technical term or theory " +
+      'name (consonance, entropy, voice-leading, autocorrelation, Roman-numeral chord function, etc.), gloss it in ' +
+      'plain language the first time it appears, in one short clause (e.g. "predictability (how easy it is to ' +
+      'guess the next note)"). Don\'t stack multiple unexplained technical terms in the same sentence. You don\'t ' +
+      "need to state the formula itself — prioritize conveying what the metric actually captures in everyday " +
+      "language.",
+    professional:
+      "Write for a reader reasonably comfortable with music theory and information theory — you can use theory " +
+      "names (Euler's measure of pleasantness, Shannon's information entropy, voice-leading distance, " +
+      "autocorrelation) and Roman-numeral chord-function notation directly, without pausing to define them.",
+  },
+};
+
+const SYSTEM_PROMPT_REST: Record<Locale, string> = {
+  ja:
     "「曲の推移(区間ごと)」の事実を軸に、序盤から終盤にかけて曲がどう変化していくかを聴き手にとっての物語として描写しつつ、" +
     "その変化の背後にある「美しさと相関しうる数理的特徴」の指標(オイラーの快さの尺度、シャノンの情報エントロピー、" +
     "声部進行の距離、自己相関)を、対応する時間的な変化点でその都度織り交ぜて説明してください。" +
@@ -96,10 +142,6 @@ const SYSTEM_PROMPT: Record<Locale, string> = {
     "といった具体的で建設的な助言も行ってください。ただしその際も、それはあなたの分析に基づく一つの視点であり、" +
     "唯一の正解ではないことを一言添えてください。",
   en:
-    "You are a music theory commentator. Below are established facts obtained by mathematically analyzing a song. " +
-    "Using only these facts, describe the song's character in natural English prose, about 250-300 words total. " +
-    "Do not split it into headed sections or bullet points — write it as a single flow, in chronological order." +
-    "\n\n" +
     'Center the narrative on the "song arc (section-by-section)" facts: describe how the song changes from ' +
     "beginning to end as a story for the listener, and weave in the relevant metrics from \"metrics that may " +
     "correlate with beauty\" (Euler's measure of pleasantness, Shannon's information entropy, voice-leading " +
@@ -201,6 +243,7 @@ function isValidBody(body: unknown): body is SummarizeRequestBody {
     (b.chordFunctions === undefined || Array.isArray(b.chordFunctions)) &&
     (b.songForm === undefined || b.songForm === null || typeof b.songForm === "object") &&
     (b.locale === undefined || b.locale === "ja" || b.locale === "en") &&
+    (b.explanationLevel === undefined || b.explanationLevel === "beginner" || b.explanationLevel === "professional") &&
     (b.question === undefined || typeof b.question === "string") &&
     (b.history === undefined || isValidHistory(b.history))
   );
@@ -239,6 +282,10 @@ export async function POST(req: Request) {
   }
 
   const facts = buildAnalysisFacts(body);
+  const level = body.explanationLevel ?? DEFAULT_EXPLANATION_LEVEL;
+  const systemPrompt = [SYSTEM_PROMPT_INTRO[locale], LEVEL_GUIDANCE[locale][level], SYSTEM_PROMPT_REST[locale]].join(
+    "\n\n"
+  );
 
   // Turn 1 is always the facts; any prior conversation (the initial
   // explanation plus earlier follow-ups) replays in order, and a new
@@ -255,7 +302,7 @@ export async function POST(req: Request) {
     const response = await client.messages.create({
       model: "claude-opus-4-8",
       max_tokens: 1600,
-      system: SYSTEM_PROMPT[locale],
+      system: systemPrompt,
       messages: conversationMessages,
     });
 

@@ -20,6 +20,7 @@ import HarmonyTab from "@/components/analyze/HarmonyTab";
 import ExpressionTab from "@/components/analyze/ExpressionTab";
 import AIExplanationTab, { AIExplanationMessage, FollowUpStatus, SummaryStatus } from "@/components/analyze/AIExplanationTab";
 import { aiExplanationTabDict } from "@/lib/i18n/dict/aiExplanationTab";
+import { DEFAULT_EXPLANATION_LEVEL, ExplanationLevel } from "@/lib/explanationLevel";
 import PartSelector from "@/components/analyze/PartSelector";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
 import { notesToNormalizedEvents, pitchClassHistogram, NormalizedNoteEvent } from "@/lib/theory/normalizedEvents";
@@ -95,6 +96,7 @@ export default function AnalyzeSongPage() {
   const [aiMessages, setAiMessages] = useState<AIExplanationMessage[]>([]);
   const [followUpStatus, setFollowUpStatus] = useState<FollowUpStatus>("idle");
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [explanationLevel, setExplanationLevel] = useState<ExplanationLevel>(DEFAULT_EXPLANATION_LEVEL);
   const [markovSequence, setMarkovSequence] = useState<number[] | null>(null);
   const [notatedKeyTimeline, setNotatedKeyTimeline] = useState<NotatedKeyPoint[]>([]);
   const [notatedChordTimeline, setNotatedChordTimeline] = useState<NotatedChordPoint[]>([]);
@@ -192,6 +194,7 @@ export default function AnalyzeSongPage() {
     chordFunctions,
     songForm,
     locale,
+    explanationLevel,
   });
 
   const handleGenerateSummary = async () => {
@@ -506,6 +509,8 @@ export default function AnalyzeSongPage() {
                 followUpStatus,
                 followUpError,
                 onAskFollowUp: handleAskFollowUp,
+                explanationLevel,
+                onChangeExplanationLevel: setExplanationLevel,
               }}
             />
           )}

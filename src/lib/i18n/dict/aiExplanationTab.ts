@@ -13,6 +13,7 @@ interface AiExplanationTabDict {
   send: string;
   sending: string;
   followUpErrorFallback: string;
+  level: { beginner: string; professional: string };
 }
 
 export const aiExplanationTabDict: Record<Locale, AiExplanationTabDict> = {
@@ -29,6 +30,7 @@ export const aiExplanationTabDict: Record<Locale, AiExplanationTabDict> = {
     send: "送信",
     sending: "送信中…",
     followUpErrorFallback: "質問への回答生成に失敗しました",
+    level: { beginner: "初心者向け", professional: "専門家向け" },
   },
   en: {
     label: "READING",
@@ -43,5 +45,6 @@ export const aiExplanationTabDict: Record<Locale, AiExplanationTabDict> = {
     send: "Send",
     sending: "Sending…",
     followUpErrorFallback: "Failed to generate a reply",
+    level: { beginner: "Beginner", professional: "Professional" },
   },
 };
