@@ -35,6 +35,18 @@ describe("estimateTempo", () => {
     expect(estimateTempo(events).source).toBe("estimated");
     expect(estimateTempo([note(0), note(1)]).source).toBe("estimated");
   });
+
+  it("exposes the raw autocorrelation peak behind the high/low confidence label", () => {
+    const events = Array.from({ length: 40 }, (_, i) => note(i * 0.5));
+    const result = estimateTempo(events);
+    expect(result.rawCorrelation).toBeGreaterThanOrEqual(0);
+    // A perfectly regular signal should correlate strongly with itself.
+    expect(result.rawCorrelation).toBeGreaterThan(0.9);
+  });
+
+  it("leaves rawCorrelation undefined when too few events to scan any lag", () => {
+    expect(estimateTempo([note(0), note(1)]).rawCorrelation).toBeUndefined();
+  });
 });
 
 describe("rhythmicEntropy", () => {

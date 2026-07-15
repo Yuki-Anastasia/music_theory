@@ -14,6 +14,13 @@ export interface TempoEstimate {
    * callers that construct a TempoEstimate directly (e.g. from a notated
    * tempo marking) without going through estimateTempo(). */
   source?: "notated" | "estimated";
+  /** The raw normalized autocorrelation peak behind `confidence`'s high/low
+   * threshold — undefined when no lag was scanned at all (too few events or
+   * zero-energy signal) or for a directly-constructed (notated) estimate.
+   * Exposed as a continuous 0-1 confidence signal for prompt-alignment
+   * scoring (src/lib/prompt/featureExtraction.ts), which needs finer
+   * granularity than the thresholded high/low label. */
+  rawCorrelation?: number;
 }
 
 function buildOnsetDensitySignal(events: NormalizedNoteEvent[], binSec: number): number[] {
@@ -63,6 +70,7 @@ export function estimateTempo(events: NormalizedNoteEvent[]): TempoEstimate {
     bpm: Math.round(bpm * 10) / 10,
     confidence: bestCorrelation >= TEMPO_CONFIDENCE_THRESHOLD ? "high" : "low",
     source: "estimated",
+    rawCorrelation: Math.max(0, bestCorrelation),
   };
 }
 

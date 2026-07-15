@@ -22,6 +22,10 @@ import HarmonyTab from "@/components/analyze/HarmonyTab";
 import ExpressionTab from "@/components/analyze/ExpressionTab";
 import AIExplanationTab, { AIExplanationMessage, FollowUpStatus, SummaryStatus } from "@/components/analyze/AIExplanationTab";
 import { aiExplanationTabDict } from "@/lib/i18n/dict/aiExplanationTab";
+import PromptAlignmentTab, { PromptParseStatus } from "@/components/analyze/PromptAlignmentTab";
+import { buildFeatureSamples } from "@/lib/prompt/featureExtraction";
+import { scorePrompt } from "@/lib/prompt/scoring";
+import type { ParsedPrompt } from "@/lib/prompt/conceptTypes";
 import { DEFAULT_EXPLANATION_LEVEL, ExplanationLevel } from "@/lib/explanationLevel";
 import PartSelector from "@/components/analyze/PartSelector";
 import { analyzeSong } from "@/lib/audio/songAnalyzer";
@@ -50,7 +54,7 @@ import { useDict, useLocale } from "@/lib/i18n/LocaleProvider";
 import { analyzeShellDict } from "@/lib/i18n/dict/analyzeShell";
 
 type Status = "idle" | "analyzing" | "done" | "error";
-type TabId = "overview" | "tonality" | "harmony" | "expression" | "ai";
+type TabId = "overview" | "tonality" | "harmony" | "expression" | "promptAlignment" | "ai";
 
 const SOFT_TARGET_MS = 30_000;
 const MARKOV_SEQUENCE_LENGTH = 32;
@@ -76,7 +80,7 @@ function withIds(events: NormalizedNoteEvent[]): NormalizedNoteEvent[] {
   return events.map((e) => ({ ...e, id: e.id ?? crypto.randomUUID() }));
 }
 
-const TAB_ORDER: TabId[] = ["overview", "tonality", "harmony", "expression", "ai"];
+const TAB_ORDER: TabId[] = ["overview", "tonality", "harmony", "expression", "promptAlignment", "ai"];
 
 // One contextual decoration accent next to the tab bar, varying with the
 // active tab's domain — a single motif, not one per section.
@@ -124,6 +128,11 @@ export default function AnalyzeSongPage() {
   const [selectedParts, setSelectedParts] = useState<Set<string>>(new Set());
   // The pre-edit snapshot of parsedEvents, for a single-level "undo last AI edit" — not a full undo/redo stack.
   const [preEditSnapshot, setPreEditSnapshot] = useState<NormalizedNoteEvent[] | null>(null);
+  // The generation prompt text and its parsed-concept result (see PromptAlignmentTab) — reset on every new upload, same as the other per-song state above.
+  const [generationPrompt, setGenerationPrompt] = useState("");
+  const [promptParseStatus, setPromptParseStatus] = useState<PromptParseStatus>("idle");
+  const [promptParseError, setPromptParseError] = useState<string | null>(null);
+  const [parsedPrompt, setParsedPrompt] = useState<ParsedPrompt | null>(null);
 
   const handleReady = async (input: Blob | AudioBuffer, sourceLabel: string) => {
     setStatus("analyzing");
@@ -140,6 +149,9 @@ export default function AnalyzeSongPage() {
     setPercussionOnsets([]);
     setNotatedTempoBpm(null);
     setPreEditSnapshot(null);
+    setPromptParseStatus("idle");
+    setPromptParseError(null);
+    setParsedPrompt(null);
 
     try {
       const notes = await analyzeSong(input, ({ fraction, elapsedMs: ms }) => {
@@ -168,6 +180,9 @@ export default function AnalyzeSongPage() {
     setPercussionOnsets(analysis.percussionOnsets);
     setNotatedTempoBpm(analysis.notatedTempoBpm);
     setPreEditSnapshot(null);
+    setPromptParseStatus("idle");
+    setPromptParseError(null);
+    setParsedPrompt(null);
   };
 
   const togglePart = (name: string) => {
@@ -280,6 +295,25 @@ export default function AnalyzeSongPage() {
     if (preEditSnapshot === null) return;
     setParsedEvents(preEditSnapshot);
     setPreEditSnapshot(null);
+  };
+
+  const handleParsePrompt = async (prompt: string) => {
+    setPromptParseStatus("loading");
+    setPromptParseError(null);
+    try {
+      const res = await fetch("/api/parse-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, locale }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to parse the prompt");
+      setParsedPrompt({ rawPrompt: prompt, concepts: data.concepts });
+      setPromptParseStatus("done");
+    } catch (err) {
+      setPromptParseError(err instanceof Error ? err.message : String(err));
+      setPromptParseStatus("error");
+    }
   };
 
   // Filters raw parsed events down to the currently-selected parts. Only
@@ -414,6 +448,30 @@ export default function AnalyzeSongPage() {
         predictability: conditionalPitchEntropy(markovEvents),
       }
     : null;
+
+  // Packages the already-computed analysis above into per-feature samples
+  // for prompt-concept matching (see featureExtraction.ts) — no new
+  // analysis math, just reusing everything the other tabs already consume.
+  const featureSamples = buildFeatureSamples({
+    tempo,
+    rhythmEntropy,
+    dynamics,
+    valence,
+    arousal,
+    aestheticMetrics,
+    scaleFit,
+    songForm,
+    climax,
+    arcSectionCount: arc.length,
+    meter: meterAnalysis,
+    instrumentBuildUp,
+    partLabels: includedParts,
+    tonnetzTrajectory,
+    histogram,
+    maxTime,
+    noteCount: events.length,
+  });
+  const promptAlignmentReport = parsedPrompt ? scorePrompt(parsedPrompt, featureSamples) : null;
 
   const TabAccent = TAB_ACCENTS[activeTab];
 
@@ -572,6 +630,18 @@ export default function AnalyzeSongPage() {
                 meter: meterAnalysis,
                 percussionOnsetCount: percussionOnsets.length,
                 noteValueBreakdown: noteValueBreakdownStats,
+              }}
+            />
+          )}
+          {activeTab === "promptAlignment" && (
+            <PromptAlignmentTab
+              data={{
+                prompt: generationPrompt,
+                onChangePrompt: setGenerationPrompt,
+                parseStatus: promptParseStatus,
+                parseError: promptParseError,
+                onAnalyze: handleParsePrompt,
+                report: promptAlignmentReport,
               }}
             />
           )}
