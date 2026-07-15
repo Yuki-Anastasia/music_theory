@@ -100,7 +100,7 @@ describe("scorePrompt", () => {
     expect(report.overallAlignment).toBeCloseTo(0.9461538, 5);
   });
 
-  it("buckets a concept's expected features into support / missing / neither, based on confidence and match strength", () => {
+  it("buckets a concept's expected features into support / missing / mismatches, based on confidence and match strength", () => {
     const parsed: ParsedPrompt = {
       rawPrompt: "test concept",
       concepts: [
@@ -134,9 +134,14 @@ describe("scorePrompt", () => {
     expect(result.missing.some((m) => m.includes("diatonicity 0.5") && m.includes("confidence too low"))).toBe(true);
     expect(result.missing.some((m) => /score\/tab/i.test(m))).toBe(true);
 
-    // consonance was confidently detected but didn't match -- shouldn't be cited as either support or missing.
+    // consonance was confidently detected but didn't match -- shouldn't be cited as either support or missing...
     expect(result.support.some((s) => s.includes("consonance"))).toBe(false);
     expect(result.missing.some((m) => m.includes("consonance"))).toBe(false);
+    // ...instead it's an actionable mismatch: what was expected vs. what was actually measured.
+    expect(result.mismatches).toHaveLength(1);
+    expect(result.mismatches[0]).toContain("Consonance");
+    expect(result.mismatches[0]).toContain("10–20");
+    expect(result.mismatches[0]).toContain("consonance 0.2");
   });
 
   it("computes ConceptConfidence's threshold boundary consistently with MIN_CONCEPT_CONFIDENCE_FOR_OVERALL", () => {

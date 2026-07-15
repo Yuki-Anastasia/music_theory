@@ -21,6 +21,7 @@ interface PromptAlignmentTabDict {
   coverage: (percent: number) => string;
   support: string;
   missing: string;
+  mismatches: string;
   contradictions: string;
 }
 
@@ -57,6 +58,7 @@ export const promptAlignmentTabDict: Record<Locale, PromptAlignmentTabDict> = {
     coverage: (percent) => `根拠の網羅率 ${percent}%`,
     support: "根拠",
     missing: "不足している根拠",
+    mismatches: "改善のヒント(測定値との差分)",
     contradictions: "矛盾",
   },
   en: {
@@ -92,6 +94,7 @@ export const promptAlignmentTabDict: Record<Locale, PromptAlignmentTabDict> = {
     coverage: (percent) => `Evidence coverage ${percent}%`,
     support: "Support",
     missing: "Missing evidence",
+    mismatches: "Improvement hints (gap vs. measured value)",
     contradictions: "Contradictions",
   },
 };

@@ -4,6 +4,7 @@ import type { ParsedPrompt, PromptConcept } from "./conceptTypes";
 import type { FeatureSampleMap } from "./featureSample";
 import { computeMatch } from "./matching";
 import { explainUnavailableFeature } from "./featureExtraction";
+import { describeMismatch } from "./suggestions";
 
 // MVP thresholds/constants (SPEC §6.2-6.3) — named and exported so they can
 // be tuned later without hunting through the scoring math; not validated
@@ -41,6 +42,8 @@ export interface ConceptResult {
   support: string[];
   contradictions: string[];
   missing: string[];
+  /** Confidently-measured features that didn't match their expectation — what's dragging the score down, and by how much (see suggestions.ts). */
+  mismatches: string[];
 }
 
 export interface PromptAlignmentReport {
@@ -91,6 +94,7 @@ interface ScoredConceptCore {
   status: "scored" | "insufficientEvidence";
   support: string[];
   missing: string[];
+  mismatches: string[];
 }
 
 /**
@@ -111,6 +115,7 @@ function scoreConceptCore(concept: PromptConcept, samples: FeatureSampleMap): Sc
   let coveredCount = 0; // |F_ok(c)|
   const support: string[] = [];
   const missing: string[] = [];
+  const mismatches: string[] = [];
 
   for (const expectation of concept.expected) {
     const sample = samples[expectation.feature];
@@ -123,10 +128,12 @@ function scoreConceptCore(concept: PromptConcept, samples: FeatureSampleMap): Sc
     weightedConfidenceSum += weight * q;
     totalWeight += weight;
 
-    if (q >= MIN_FEATURE_CONFIDENCE) {
+    if (q >= MIN_FEATURE_CONFIDENCE && sample) {
       coveredCount++;
-      if (sample && m >= SUPPORT_MATCH_THRESHOLD) {
+      if (m >= SUPPORT_MATCH_THRESHOLD) {
         support.push(`${label}: ${sample.evidence}`);
+      } else {
+        mismatches.push(describeMismatch(expectation, sample));
       }
     } else {
       missing.push(sample ? `${label}: ${sample.evidence} (confidence too low)` : `${label}: ${explainUnavailableFeature(expectation.feature)}`);
@@ -139,7 +146,7 @@ function scoreConceptCore(concept: PromptConcept, samples: FeatureSampleMap): Sc
   const confidence = totalWeight > 0 ? coverage * (weightedConfidenceSum / totalWeight) : 0;
   const status: "scored" | "insufficientEvidence" = confidence >= MIN_CONCEPT_CONFIDENCE_FOR_OVERALL ? "scored" : "insufficientEvidence";
 
-  return { score, confidence, coverage, status, support, missing };
+  return { score, confidence, coverage, status, support, missing, mismatches };
 }
 
 /** ConceptScore/coverage/ConceptConfidence/OverallAlignment (SPEC §6.1-6.3), plus contradiction detection (§6.5). */

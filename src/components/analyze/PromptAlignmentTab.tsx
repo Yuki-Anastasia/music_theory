@@ -130,6 +130,17 @@ export default function PromptAlignmentTab({ data }: { data: PromptAlignmentTabD
                   </div>
                 )}
 
+                {concept.mismatches.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-sky-700 dark:text-sky-400">{t.mismatches}</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-sky-700 dark:text-sky-400">
+                      {concept.mismatches.map((s, j) => (
+                        <li key={j}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 {concept.contradictions.length > 0 && (
                   <div className="mt-3">
                     <p className="text-xs font-medium text-amber-700 dark:text-amber-400">{t.contradictions}</p>
