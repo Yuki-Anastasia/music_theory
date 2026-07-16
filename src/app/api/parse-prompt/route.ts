@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { auth } from "@clerk/nextjs/server";
 import { buildPromptParseTool, parsePromptConceptsToolInput, PARSE_PROMPT_TOOL_NAME } from "@/lib/prompt/promptParserTool";
 import { describeFeatureNamesForPrompt } from "@/lib/prompt/ontology";
 import type { Locale } from "@/lib/i18n/locale";
@@ -28,7 +29,10 @@ const FEATURE_LIST_LABEL: Record<Locale, string> = {
   en: "Available features:",
 };
 
-const API_MESSAGES: Record<Locale, { badJson: string; missingFields: string; noApiKey: string; rateLimited: string; badApiKey: string; genericFailure: string }> = {
+const API_MESSAGES: Record<
+  Locale,
+  { badJson: string; missingFields: string; noApiKey: string; rateLimited: string; badApiKey: string; genericFailure: string; signInRequired: string }
+> = {
   ja: {
     badJson: "リクエストボディがJSONとして解析できません",
     missingFields: "必須フィールドが不足しています",
@@ -36,6 +40,7 @@ const API_MESSAGES: Record<Locale, { badJson: string; missingFields: string; noA
     rateLimited: "レート制限に達しました。しばらく待って再試行してください",
     badApiKey: "APIキーが無効です(サーバー設定を確認してください)",
     genericFailure: "プロンプトの解析に失敗しました",
+    signInRequired: "この機能を使うにはログインが必要です",
   },
   en: {
     badJson: "The request body could not be parsed as JSON",
@@ -44,6 +49,7 @@ const API_MESSAGES: Record<Locale, { badJson: string; missingFields: string; noA
     rateLimited: "Rate limit reached. Please wait and try again",
     badApiKey: "Invalid API key (check the server configuration)",
     genericFailure: "Failed to parse the prompt",
+    signInRequired: "Please sign in to use this feature",
   },
 };
 
@@ -71,6 +77,11 @@ export async function POST(req: Request) {
 
   const locale = extractLocale(body);
   const errorMessages = API_MESSAGES[locale];
+
+  const { userId } = await auth();
+  if (!userId) {
+    return Response.json({ error: errorMessages.signInRequired }, { status: 401 });
+  }
 
   if (!isValidBody(body)) {
     return Response.json({ error: errorMessages.missingFields }, { status: 400 });

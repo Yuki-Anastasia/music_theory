@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { SignInButton, SignUpButton, UserButton, useUser } from "@clerk/nextjs";
 import { useLocale, useDict } from "@/lib/i18n/LocaleProvider";
 import { commonDict } from "@/lib/i18n/dict/common";
 import type { Locale } from "@/lib/i18n/locale";
@@ -16,6 +17,7 @@ export default function NavBar() {
   const pathname = usePathname();
   const { locale, setLocale } = useLocale();
   const t = useDict(commonDict);
+  const { isSignedIn } = useUser();
 
   const links = [
     { href: "/", label: t.nav.home },
@@ -48,7 +50,7 @@ export default function NavBar() {
             );
           })}
         </div>
-        <div className="flex gap-1 text-xs">
+        <div className="flex items-center gap-1 text-xs">
           {LOCALES.map((l) => (
             <button
               key={l.id}
@@ -62,6 +64,24 @@ export default function NavBar() {
               {l.label}
             </button>
           ))}
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          {isSignedIn ? (
+            <UserButton />
+          ) : (
+            <>
+              <SignInButton mode="modal">
+                <button className="rounded-full px-3 py-1 text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100">
+                  {t.auth.signIn}
+                </button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <button className="rounded-full border border-zinc-300 px-3 py-1 text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900">
+                  {t.auth.signUp}
+                </button>
+              </SignUpButton>
+            </>
+          )}
         </div>
       </nav>
     </header>

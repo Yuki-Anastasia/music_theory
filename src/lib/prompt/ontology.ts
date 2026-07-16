@@ -100,7 +100,10 @@ export const FEATURE_REGISTRY: Record<FeatureName, FeatureDescriptor> = {
   syncopation: {
     label: "Syncopation",
     description:
-      "0-1 score of how often notes land on weak beats/offbeats rather than strong beats. Only available for score-derived input with a detected meter.",
+      "0-1 score of how often notes land on weak beats/offbeats rather than strong beats. Only available for score-derived input with a detected meter. " +
+      "The 0-1 range is a theoretical ceiling (every single onset maximally displacing the strongest possible beat), which essentially never happens in real " +
+      "music — even a rhythm most listeners would call 'heavily syncopated' typically lands around 0.1-0.3, not near 1. When picking a target range for a " +
+      "syncopation-related concept, prefer values within roughly 0-0.35 rather than the upper end of the nominal scale.",
     valueType: "unit",
     categories: ["rhythm"],
     supportedKinds: ["range", "direction"],
@@ -162,7 +165,9 @@ export const FEATURE_REGISTRY: Record<FeatureName, FeatureDescriptor> = {
   harmonicTension: {
     label: "Harmonic tension",
     description:
-      "Average parsimonious voice-leading distance (in semitones) between consecutive chords. Larger means more abrupt/distant harmonic motion.",
+      "Average parsimonious voice-leading distance (in semitones) between consecutive chords. Larger means more abrupt/distant harmonic motion. " +
+      "Typical adjacent-chord movement in real music runs roughly 1-4 semitones; even a deliberately abrupt or harmonically distant change rarely " +
+      "averages above ~8. A single-line melody with no simultaneous harmony will measure near 0, which is not evidence of consonance by itself.",
     valueType: "positiveUnbounded",
     categories: ["harmony"],
     supportedKinds: ["range"],
