@@ -55,6 +55,7 @@ import { analyzeShellDict } from "@/lib/i18n/dict/analyzeShell";
 
 type Status = "idle" | "analyzing" | "done" | "error";
 type TabId = "overview" | "tonality" | "harmony" | "expression" | "promptAlignment" | "ai";
+type TabGroupId = "analysis" | "ai";
 
 const SOFT_TARGET_MS = 30_000;
 const MARKOV_SEQUENCE_LENGTH = 32;
@@ -80,7 +81,19 @@ function withIds(events: NormalizedNoteEvent[]): NormalizedNoteEvent[] {
   return events.map((e) => ({ ...e, id: e.id ?? crypto.randomUUID() }));
 }
 
-const TAB_ORDER: TabId[] = ["overview", "tonality", "harmony", "expression", "promptAlignment", "ai"];
+// Two top-level navigation groups reflecting the workflow: the deterministic
+// math-engine tabs ("analysis"), then the AI-interpretation tabs ("ai").
+// Switching groups is purely presentational — activeTab (below) remains the
+// single source of truth for which content renders.
+const GROUP_ORDER: TabGroupId[] = ["analysis", "ai"];
+const TAB_GROUPS: Record<TabGroupId, TabId[]> = {
+  analysis: ["overview", "tonality", "harmony", "expression"],
+  ai: ["ai", "promptAlignment"],
+};
+
+function groupOfTab(tabId: TabId): TabGroupId {
+  return TAB_GROUPS.analysis.includes(tabId) ? "analysis" : "ai";
+}
 
 // One contextual decoration accent next to the tab bar, varying with the
 // active tab's domain — a single motif, not one per section.
@@ -474,6 +487,7 @@ export default function AnalyzeSongPage() {
   const promptAlignmentReport = parsedPrompt ? scorePrompt(parsedPrompt, featureSamples) : null;
 
   const TabAccent = TAB_ACCENTS[activeTab];
+  const activeGroup = groupOfTab(activeTab);
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8">
@@ -566,25 +580,43 @@ export default function AnalyzeSongPage() {
 
           <PartSelector partNames={scorePartNames} selectedParts={selectedParts} onToggle={togglePart} />
 
-          <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800">
-            <div className="flex gap-1">
-              {TAB_ORDER.map((tabId) => (
+          <div className="flex flex-col gap-3">
+            <div className="inline-flex w-fit gap-1 rounded-full border border-zinc-200 p-1 dark:border-zinc-800">
+              {GROUP_ORDER.map((groupId) => (
                 <button
-                  key={tabId}
-                  onClick={() => setActiveTab(tabId)}
+                  key={groupId}
+                  onClick={() => setActiveTab(TAB_GROUPS[groupId][0])}
                   className={
-                    activeTab === tabId
-                      ? "border-b-2 border-navy px-4 py-2 text-sm text-navy"
-                      : "border-b-2 border-transparent px-4 py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+                    activeGroup === groupId
+                      ? "rounded-full bg-navy px-3 py-1 text-xs font-medium tracking-[0.05em] text-white"
+                      : "rounded-full px-3 py-1 text-xs font-medium tracking-[0.05em] text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
                   }
                 >
-                  {t.tabs[tabId]}
+                  {t.groups[groupId]}
                 </button>
               ))}
             </div>
-            {TabAccent && (
-              <TabAccent className="mb-2 hidden h-6 w-16 shrink-0 text-navy opacity-30 sm:block" />
-            )}
+
+            <div className="flex items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex gap-1">
+                {TAB_GROUPS[activeGroup].map((tabId) => (
+                  <button
+                    key={tabId}
+                    onClick={() => setActiveTab(tabId)}
+                    className={
+                      activeTab === tabId
+                        ? "border-b-2 border-navy px-4 py-2 text-sm text-navy"
+                        : "border-b-2 border-transparent px-4 py-2 text-sm text-zinc-500 transition-colors hover:text-zinc-900 dark:hover:text-zinc-100"
+                    }
+                  >
+                    {t.tabs[tabId]}
+                  </button>
+                ))}
+              </div>
+              {TabAccent && (
+                <TabAccent className="mb-2 hidden h-6 w-16 shrink-0 text-navy opacity-30 sm:block" />
+              )}
+            </div>
           </div>
 
           {activeTab === "overview" && (

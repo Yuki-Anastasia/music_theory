@@ -20,7 +20,9 @@ test("score import populates every analysis tab", async ({ page }) => {
 
   // Tabs only render once status === "done" (see analyze/page.tsx) — this is
   // the natural "analysis finished" wait condition for both import paths.
-  await page.getByRole("button", { name: "プロンプト整合性" }).waitFor({ state: "visible", timeout: 20_000 });
+  // The "Analysis" group is active by default, so its first subtab ("調性")
+  // is the natural readiness signal.
+  await page.getByRole("button", { name: "調性" }).waitFor({ state: "visible", timeout: 20_000 });
 
   await expect(page.getByText("ピアノロール", { exact: true })).toBeVisible();
 
@@ -33,6 +35,10 @@ test("score import populates every analysis tab", async ({ page }) => {
   await page.getByRole("button", { name: "リズム・表現" }).click();
   // Notated tempo in sample.musicxml is 120 BPM — should pass through as-is.
   await expect(page.getByText("約 120 BPM", { exact: true })).toBeVisible();
+
+  // Switch to the "AI" group to reach its subtabs (not visible under "Analysis").
+  await page.getByRole("button", { name: "AI", exact: true }).click();
+  await expect(page.getByRole("button", { name: "プロンプト整合性" })).toBeVisible();
 
   expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
 });

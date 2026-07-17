@@ -1,8 +1,10 @@
 import type { Locale } from "../locale";
 
 type TabId = "overview" | "tonality" | "harmony" | "expression" | "promptAlignment" | "ai";
+type TabGroupId = "analysis" | "ai";
 
 interface AnalyzeShellDict {
+  groups: Record<TabGroupId, string>;
   tabs: Record<TabId, string>;
   intro: { heading: string; description: string };
   source: { label: string; heading: string };
@@ -18,6 +20,7 @@ interface AnalyzeShellDict {
 
 export const analyzeShellDict: Record<Locale, AnalyzeShellDict> = {
   ja: {
+    groups: { analysis: "解析", ai: "AI" },
     tabs: { overview: "概要", tonality: "調性", harmony: "和声", expression: "リズム・表現", promptAlignment: "プロンプト整合性", ai: "AI解説" },
     intro: {
       heading: "曲を解析する",
@@ -53,6 +56,7 @@ export const analyzeShellDict: Record<Locale, AnalyzeShellDict> = {
     summaryFailedFallback: "AI解説の生成に失敗しました",
   },
   en: {
+    groups: { analysis: "Analysis", ai: "AI" },
     tabs: {
       overview: "Overview",
       tonality: "Tonality",
